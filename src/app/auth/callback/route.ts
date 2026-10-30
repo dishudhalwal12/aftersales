@@ -16,6 +16,7 @@ import {
 } from "../../../server/auth/crypto.ts";
 import { authBaseUrl } from "../../../server/auth/supabase/config.ts";
 import { createSupabaseServerClient } from "../../../server/auth/supabase/server.ts";
+import { DATABASE_UNAVAILABLE_MESSAGE, isDatabaseUnavailable } from "../../../server/db-errors.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -54,11 +55,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // An email that already has a password account keeps that password: this is a
   // second way in to the same user, not a replacement for it.
-  const user = await prisma.user.upsert({
-    where: { email },
-    create: { email, name: fullName.length > 0 ? fullName : null, googleId },
-    update: { googleId },
-  });
+  const user = await prisma.user
+    .upsert({
+      where: { email },
+      create: { email, name: fullName.length > 0 ? fullName : null, googleId },
+      update: { googleId },
+    })
+    // Google identity verified, but the app's own database is empty or
+    // unreachable: say so on the auth page instead of a 500 after the redirect.
+    .catch((error: unknown) => {
+      if (isDatabaseUnavailable(error)) {
+        console.error("[auth/callback] database unavailable:", error);
+        return null;
+      }
+      throw error;
+    });
+
+  if (user === null) return backToAuth(DATABASE_UNAVAILABLE_MESSAGE);
 
   const response = NextResponse.redirect(new URL(await postAuthPath(user.id), authBaseUrl()));
   response.cookies.set(SESSION_COOKIE, signSessionToken(user.id), sessionCookieOptions());

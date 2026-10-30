@@ -241,7 +241,7 @@ async function main(): Promise<void> {
   await seedBusiness(BUSINESS_B, demo.id, BUSINESS_B_TICKETS);
   await seedBusiness(BUSINESS_C, rival.id, []);
 
-  console.log(`Demo login: ${DEMO_EMAIL} / ${DEMO_PASSWORD} (or the 1-click button)`);
+  console.log(`Demo login: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
 }
 
 main()
