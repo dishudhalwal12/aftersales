@@ -10,6 +10,10 @@
  *
  *   npm run landing              # http://localhost:8080/
  *   LANDING_PORT=9000 npm run landing
+ *
+ * Paths are served under `/landing/...` as well as at the root, because the
+ * page references its assets from the site root and Next.js serves the same
+ * files that way in production.
  */
 
 import { createServer } from "node:http";
@@ -100,7 +104,9 @@ const server = createServer(async (req, res) => {
   }
 
   const { pathname } = new URL(req.url ?? "/", `http://localhost:${PORT}`);
-  const found = await resolveFile(pathname);
+  // Production serves these same files at `/landing/...`; accept both so the
+  // replica behaves the same whether Next or this script is in front of it.
+  const found = await resolveFile(pathname.replace(/^\/landing(?=\/|$)/, ""));
   if (!found) {
     res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     res.end(`404 Not Found: ${decodeURIComponent(pathname)}\n`);

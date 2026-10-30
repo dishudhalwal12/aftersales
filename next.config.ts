@@ -7,21 +7,14 @@ const nextConfig: NextConfig = {
   experimental: {
     extensionAlias: { ".js": [".ts", ".tsx", ".js"] },
   },
-  async redirects() {
+  async rewrites() {
+    // A rewrite, not a redirect: the browser keeps `/` in the address bar while
+    // the static page is served from its real path. The mirror's assets are
+    // referenced from the site root (`/landing/assets/...`) for exactly this
+    // reason — relative paths would resolve against `/` and 404.
     return [
-      {
-        // The rebranded replica IS the landing page: `src/app/page.tsx` was removed
-        // so there is exactly one home screen. The filename stays in the URL because
-        // the mirrored page resolves its assets relatively.
-        source: "/",
-        destination: "/landing/index.html",
-        permanent: false,
-      },
-      {
-        source: "/landing",
-        destination: "/landing/index.html",
-        permanent: false,
-      },
+      { source: "/", destination: "/landing/index.html" },
+      { source: "/landing", destination: "/landing/index.html" },
     ];
   },
 };
