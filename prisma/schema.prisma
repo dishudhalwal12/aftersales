@@ -1,8 +1,9 @@
 // Prisma schema — PRD rev 4 §3, plus one additive column noted inline.
 // Postgres on Supabase. `url` goes through the connection pooler (port 6543)
 // because serverless functions open a connection per invocation; `directUrl`
-// is the port-5432 connection that `prisma db push` / `migrate` must use,
-// since the pooler cannot run DDL.
+// is the session-pooler connection (port 5432) that `prisma db push` /
+// `migrate` must use, since transaction mode cannot run DDL. It is a pooler
+// host, not db.<ref>.supabase.co, which is IPv6-only without the IPv4 add-on.
 
 datasource db {
   provider  = "postgresql"
