@@ -1,38 +1,75 @@
-import { z } from "zod";
-
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, requireUser } from "@/lib/auth";
-import { triageInboundMessage } from "@/lib/triage";
+import { NextResponse } from "next/server";
+import { respondToContact } from "../../../../server/business/service.ts";
+import {
+  HttpError,
+  errorResponse,
+  loadOwnedBusiness,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../server/auth/tenant.ts";
+import type { TicketChannel } from "../../../../shared/domain.ts";
 
 export const dynamic = "force-dynamic";
 
-const textQuerySchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-  customerName: z.string().trim().min(1).max(120).default("Judge Tester"),
-  customerHandle: z.string().trim().min(1).max(200).default("judge@sphinx.demo"),
-  channel: z
-    .enum(["TEXT_MODAL", "WHATSAPP", "INSTAGRAM", "GMAIL", "VOICE"])
-    .default("TEXT_MODAL"),
-  query: z.string().trim().min(1, "Query is required.").max(2000),
-});
+const CHANNELS: ReadonlySet<string> = new Set([
+  "TEXT_MODAL",
+  "WHATSAPP",
+  "INSTAGRAM",
+  "GMAIL",
+  "VOICE",
+]);
 
+/**
+ * POST /api/ai/text-query — PRD §5.2.
+ * `businessId` is always resolved against the session's ownership; it is never
+ * trusted from the model or from a caller-supplied owner id.
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = textQuerySchema.parse(await parseJsonBody(request));
+    const body = await readJson(request);
 
-    const business = await assertBusinessOwnership(user.id, body.businessId);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    const query = requireString(body, "query", { max: 4000 });
+    const customerName = requireString(body, "customerName", { max: 120, optional: true });
+    const customerHandle = requireString(body, "customerHandle", { max: 200, optional: true });
+    const channelRaw = requireString(body, "channel", { max: 20, optional: true });
+    const channel = (channelRaw.length > 0 ? channelRaw.toUpperCase() : "TEXT_MODAL") as string;
 
-    const result = await triageInboundMessage({
+    if (!CHANNELS.has(channel)) {
+      throw new HttpError(400, "field \"channel\" is not a supported channel");
+    }
+
+    const business = await loadOwnedBusiness(user.id, businessId);
+
+    const result = await respondToContact({
       business,
-      query: body.query,
-      channel: body.channel,
-      customerName: body.customerName,
-      customerHandle: body.customerHandle,
+      channel: channel as TicketChannel,
+      customerName: customerName.length > 0 ? customerName : "Judge Tester",
+      customerHandle: customerHandle.length > 0 ? customerHandle : "judge@sphinx.mnit.ac.in",
+      query,
+      externalMessageId: null,
     });
 
-    return jsonOk(result);
+    return NextResponse.json({
+      ticketId: result.ticketId,
+      businessId: result.businessId,
+      specialist: result.specialist,
+      intent: result.intent,
+      sentiment: result.sentiment,
+      urgencyScore: result.urgencyScore,
+      confidenceScore: result.confidenceScore,
+      actionStatus: result.actionStatus,
+      routingRuleHit: result.routingRuleHit,
+      shouldAutoSend: result.shouldAutoSend,
+      answer: result.answer,
+      sources: result.sources,
+      provider: result.provider,
+      degraded: result.degraded,
+      classifierError: result.classifierError,
+    });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

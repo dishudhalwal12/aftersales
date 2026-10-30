@@ -1,43 +1,44 @@
 {
   "name": "aftersales-ai",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "type": "module",
+  "description": "Team 41 - SPHINX '26 PS 2.5 omnichannel AI support & triage",
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
-    "build": "cross-env NODE_ENV=production next build",
+    "build": "next build",
     "start": "next start",
+    "test": "node --env-file-if-exists=.env --test 'tests/**/*.test.ts'",
+    "test:coverage": "node --env-file-if-exists=.env --test --experimental-test-coverage 'tests/**/*.test.ts'",
+    "verify:phase1": "node --env-file-if-exists=.env scripts/verify-phase1.mjs",
+    "verify:phase3": "node --env-file-if-exists=.env scripts/verify-phase3.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "landing": "node scripts/serve-landing.mjs",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio",
-    "db:reset": "prisma db push --force-reset && prisma db seed",
-    "postinstall": "prisma generate"
+    "db:setup": "prisma db push && prisma db seed",
+    "db:reset": "prisma db push --force-reset && prisma db seed"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "node prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
-    "bcryptjs": "3.0.3",
-    "next": "15.5.28",
-    "next-auth": "5.0.0-beta.32",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "zod": "3.25.76"
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.118.0",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.4.21",
-    "cross-env": "^7.0.3",
-    "postcss": "^8.5.6",
     "prisma": "6.19.3",
-    "tailwindcss": "3.4.19",
-    "tsx": "4.23.15",
-    "typescript": "^5.9.3",
-    "vitest": "3.2.7"
+    "typescript": "^7.0.2"
   }
 }

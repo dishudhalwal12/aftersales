@@ -1,98 +1,123 @@
-import type { Business } from "@prisma/client";
-import { z } from "zod";
-
-import { ApiError, jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, getSessionUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { prisma } from "../../../../../server/db.ts";
+import { respondToContact } from "../../../../../server/business/service.ts";
+import { channelForProvider, isWebhookTokenValid } from "../../../../../server/business/channel-webhook.ts";
 import {
-  handleInboundWebhook,
-  parseWebhookProvider,
-  webhookSecretMatches,
-} from "@/lib/channel-webhook";
-import { prisma } from "@/lib/db";
+  HttpError,
+  errorResponse,
+  loadOwnedBusiness,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 
-const webhookSchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-  externalMessageId: z.string().trim().min(1, "externalMessageId is required.").max(200),
-  customerName: z.string().trim().min(1).max(120),
-  customerHandle: z.string().trim().min(1).max(200),
-  message: z.string().trim().min(1, "message is required.").max(2000),
-  webhookSecret: z.string().trim().min(1).max(500).optional(),
-});
+type Context = { params: Promise<{ provider: string }> };
 
-// Two callers share this endpoint:
-// - the dashboard simulator, authenticated by the owner's session, and
-// - an external provider, authenticated by the secret bound to that channel row.
-// `businessId` is only honoured after one of those checks passes.
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
+/**
+ * POST /api/channels/webhook/[provider]
+ * The inbound edge for the simulator and for a real adapter. Two ways in:
+ *   - the owner's session (the dashboard simulator),
+ *   - `x-channel-token` matching CHANNEL_WEBHOOK_SECRET (a provider delivery).
+ * Idempotency is the unique index on (businessId, externalMessageId): the same payload twice is
+ * one ticket and one decision (AT-10), and a replay carrying another tenant's id is that
+ * tenant's own delivery (AT-05).
+ */
+export async function POST(request: Request, context: Context) {
   try {
-    const { provider: rawProvider } = await params;
-    const provider = parseWebhookProvider(rawProvider);
-    if (!provider) {
-      throw new ApiError(
-        404,
-        "UNKNOWN_PROVIDER",
-        "Supported webhook providers: whatsapp, facebook, instagram, gmail."
-      );
-    }
+    const { provider } = await context.params;
+    const channel = channelForProvider(provider);
+    if (!channel) throw new HttpError(404, `unknown channel provider: ${provider}`);
 
-    const body = webhookSchema.parse(await parseJsonBody(request));
-    const session = await getSessionUser();
+    const platformAuthorised = isWebhookTokenValid(
+      process.env.CHANNEL_WEBHOOK_SECRET ?? "",
+      request.headers.get("x-channel-token") ?? "",
+    );
+    const user = platformAuthorised ? null : await requireUser();
 
-    let business: Business;
-    if (session) {
-      business = await assertBusinessOwnership(session.id, body.businessId);
-    } else {
-      const connection = await prisma.channelConnection.findUnique({
-        where: {
-          businessId_channelType: {
-            businessId: body.businessId,
-            channelType: provider,
-          },
-        },
-      });
-      const providedSecret =
-        request.headers.get("x-webhook-secret") ?? body.webhookSecret ?? null;
+    const body = await readJson(request);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    const externalMessageId = requireString(body, "externalMessageId", { max: 200 });
+    const query = requireString(body, "query", { max: 4000 });
+    const customerName = requireString(body, "customerName", { max: 120, optional: true });
+    const customerHandle = requireString(body, "customerHandle", { max: 200, optional: true });
 
-      if (!connection || !webhookSecretMatches(connection.configJson, providedSecret)) {
-        throw new ApiError(401, "UNAUTHORIZED", "Webhook authentication failed.");
-      }
+    const business =
+      user !== null
+        ? await loadOwnedBusiness(user.id, businessId)
+        : await loadBusinessForProvider(businessId);
 
-      if (connection.status === "UNAVAILABLE") {
-        throw new ApiError(
-          409,
-          "CHANNEL_UNAVAILABLE",
-          `The ${provider} channel is not available for this business.`
-        );
-      }
-
-      const found = await prisma.business.findUnique({
-        where: { id: body.businessId },
-      });
-      if (!found) {
-        throw new ApiError(401, "UNAUTHORIZED", "Webhook authentication failed.");
-      }
-      business = found;
-    }
-
-    const outcome = await handleInboundWebhook({
+    const result = await respondToContact({
       business,
-      provider,
-      externalMessageId: body.externalMessageId,
-      customerName: body.customerName,
-      customerHandle: body.customerHandle,
-      message: body.message,
+      channel,
+      customerName: customerName.length > 0 ? customerName : `${channel} customer`,
+      customerHandle: customerHandle.length > 0 ? customerHandle : `unknown-${channel.toLowerCase()}`,
+      query,
+      externalMessageId,
     });
 
-    return jsonOk(
-      { duplicate: outcome.duplicate, ...outcome.result },
-      outcome.duplicate ? 200 : 201
-    );
+    return NextResponse.json({
+      provider: provider.trim().toLowerCase(),
+      duplicate: result.duplicate,
+      ticketId: result.ticketId,
+      businessId: result.businessId,
+      routingRuleHit: result.routingRuleHit,
+      actionStatus: result.actionStatus,
+      shouldAutoSend: result.shouldAutoSend,
+      confidenceScore: result.confidenceScore,
+      specialist: result.specialist,
+      answer: result.answer,
+      sources: result.sources,
+      provider_used: result.provider,
+      degraded: result.degraded,
+    });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
+}
+
+/** GET /api/channels/webhook/[provider] — truthful readiness for the panel. */
+export async function GET(request: Request, context: Context) {
+  try {
+    const user = await requireUser();
+    const { provider } = await context.params;
+    const channel = channelForProvider(provider);
+    if (!channel) throw new HttpError(404, `unknown channel provider: ${provider}`);
+
+    const businessId = new URL(request.url).searchParams.get("businessId") ?? "";
+    const business = await loadOwnedBusiness(user.id, businessId);
+
+    const connection = await prisma.channelConnection.findUnique({
+      where: { businessId_channelType: { businessId: business.id, channelType: channel } },
+    });
+
+    return NextResponse.json({
+      provider: provider.trim().toLowerCase(),
+      channel,
+      configured: connection !== null,
+      status: connection?.status ?? "UNAVAILABLE",
+      autoSend: connection?.autoSend ?? false,
+      transport: transportFor(provider.trim().toLowerCase()),
+    });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/**
+ * A provider delivery carries its business id, but the platform token is not a tenant session:
+ * an unknown id is a 404, never a write under a guessed row.
+ */
+async function loadBusinessForProvider(businessId: string) {
+  const business = await prisma.business.findUnique({ where: { id: businessId } });
+  if (!business) throw new HttpError(404, "business not found");
+  return business;
+}
+
+function transportFor(provider: string): string {
+  if (provider === "whatsapp") return "simulated inbox (no live Baileys session in this deployment)";
+  if (provider === "instagram") return "simulated inbox (Meta app review not completed)";
+  if (provider === "gmail") return "simulated inbox (OAuth not configured)";
+  return "unknown";
 }

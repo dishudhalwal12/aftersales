@@ -1,10 +1,14 @@
-// AfterSales AI — multi-tenant schema (PRD Section 3).
-// Every tenant-scoped table carries businessId so cross-business reads are
-// impossible when queries are always filtered by the authenticated business.
+// Prisma schema — PRD rev 4 §3, plus one additive column noted inline.
+// Postgres on Supabase. `url` goes through the connection pooler (port 6543)
+// because serverless functions open a connection per invocation; `directUrl`
+// is the session-pooler connection (port 5432) that `prisma db push` /
+// `migrate` must use, since transaction mode cannot run DDL. It is a pooler
+// host, not db.<ref>.supabase.co, which is IPv6-only without the IPv4 add-on.
 
 datasource db {
-  provider = "sqlite" // Easily swappable to "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
@@ -26,18 +30,21 @@ model Business {
   ownerId          String
   owner            User                @relation(fields: [ownerId], references: [id])
   name             String
-  businessType     String // e.g., "SaaS", "E-Commerce", "Healthcare Clinic"
+  businessType     String
   description      String
-  productsServices String // JSON or Markdown text of catalog & prices
+  productsServices String
   hours            String
   returnPolicy     String
-  faqs             String // JSON array or Markdown FAQ pairs
+  faqs             String
   escalationEmail  String
   escalationPhone  String
   agentTone        String              @default("Warm, concise, and helpful")
   autoSendEnabled  Boolean             @default(true)
-  compiledBrainMd  String // Full normalized business_brain.md
+  compiledBrainMd  String
   brainVersion     Int                 @default(1)
+  // ADDITIVE (not in PRD §3): the wizard's .md upload is a first-class input,
+  // so it is persisted instead of being silently folded into another column.
+  rawMarkdownUpload String              @default("")
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   chunks           KnowledgeChunk[]
@@ -51,9 +58,9 @@ model KnowledgeChunk {
   businessId String
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   chunkIndex Int
-  section    String // e.g., "Pricing", "Return Policy", "FAQs", "Technical Troubleshooting"
+  section    String
   content    String
-  keywords   String // Lowercase comma-separated tokens for fast hybrid search
+  keywords   String
   createdAt  DateTime @default(now())
 
   @@index([businessId])
@@ -63,10 +70,10 @@ model ChannelConnection {
   id          String   @id @default(cuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  channelType String // "WHATSAPP" | "FACEBOOK" | "INSTAGRAM" | "GMAIL" | "SARVAM_VOICE"
-  status      String // "CONNECTED" | "TEST_MODE" | "DRAFT_ONLY" | "UNAVAILABLE"
+  channelType String
+  status      String
   autoSend    Boolean  @default(false)
-  configJson  String? // Encrypted metadata (never raw passwords)
+  configJson  String?
   updatedAt   DateTime @updatedAt
 
   @@unique([businessId, channelType])
@@ -76,48 +83,54 @@ model Ticket {
   id                 String        @id @default(cuid())
   businessId         String
   business           Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  externalMessageId  String?       @unique // Prevents duplicate webhook processing
-  channel            String // "TEXT_MODAL" | "WHATSAPP" | "FACEBOOK" | "INSTAGRAM" | "GMAIL" | "VOICE"
+  // Provider message ids are tenant-scoped: a global unique key lets one tenant's replay read
+  // another tenant's ticket (AT-05). Idempotency is the pair, never the raw id alone.
+  externalMessageId  String?
+  channel            String
   customerName       String
-  customerHandle     String // Email, phone number, or IG handle
+  customerHandle     String
   customerQuery      String
-  state              String // "new" | "triaged" | "replied" | "escalated" | "closed"
-  specialistAssigned String // "general" | "technical" | "sales"
+  state              String
+  specialistAssigned String
   intent             String
-  sentiment          String // "positive" | "neutral" | "frustrated" | "distressed"
-  urgencyScore       Int // 0 to 100
-  confidenceScore    Int // 0 to 100
-  actionStatus       String // "answered" | "draft" | "escalated" | "failed"
-  routingRuleHit     String // "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7"
+  sentiment          String
+  urgencyScore       Int
+  confidenceScore    Int
+  actionStatus       String
+  routingRuleHit     String
   aiDraftOrReply     String
-  citedChunkIds      String // JSON array of KnowledgeChunk IDs e.g. '["chk_1", "chk_2"]'
+  citedChunkIds      String
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   events             TicketEvent[]
 
   @@index([businessId, state])
+  @@index([businessId, createdAt])
+  @@unique([businessId, externalMessageId])
 }
 
 model TicketEvent {
   id        String   @id @default(cuid())
   ticketId  String
   ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  eventType String // "INBOUND_RECEIVED" | "RAG_RETRIEVED" | "ROUTING_DECIDED" | "AUTO_SENT" | "DRAFT_SAVED" | "ESCALATED"
-  payload   String // JSON details of the step
+  eventType String
+  payload   String
   createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }
 
 model VoiceTestSession {
   id                  String   @id @default(cuid())
   businessId          String
   business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  demoPin             String // 4-digit fallback code e.g. "4821"
+  demoPin             String
   judgePhone          String
-  status              String // "initiated" | "ringing" | "in_progress" | "completed" | "failed"
+  status              String
   sarvamInteractionId String?
   transcript          String?
   durationSeconds     Int?
-  escalationOutcome   String? // "resolved_by_ai" | "escalated_to_owner"
+  escalationOutcome   String?
   expiresAt           DateTime
   createdAt           DateTime @default(now())
 

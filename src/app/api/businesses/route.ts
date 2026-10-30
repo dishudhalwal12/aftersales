@@ -1,133 +1,90 @@
-import { z } from "zod";
-
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
-import { CHANNEL_TYPES } from "@/lib/constants";
-import { prisma } from "@/lib/db";
-import { buildBusinessBrain } from "@/lib/rag";
+import { NextResponse } from "next/server";
+import { prisma } from "../../../server/db.ts";
+import { createBusinessForOwner } from "../../../server/business/admin.ts";
+import {
+  errorResponse,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../server/auth/tenant.ts";
+import { HttpError } from "../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 
-const phonePattern = /^\+?[0-9][0-9\s-]{6,19}$/;
-
-const onboardingSchema = z.object({
-  name: z.string().trim().min(1, "Business name is required.").max(120),
-  businessType: z.string().trim().min(1, "Business type is required.").max(80),
-  description: z.string().trim().min(1, "Description is required.").max(4000),
-  productsServices: z.string().trim().min(1, "Products & pricing are required.").max(8000),
-  hours: z.string().trim().min(1, "Business hours are required.").max(2000),
-  returnPolicy: z.string().trim().min(1, "Return/refund policy is required.").max(4000),
-  faqs: z.string().trim().min(1, "FAQs are required.").max(8000),
-  escalationEmail: z.string().trim().toLowerCase().email("Escalation email must be valid."),
-  escalationPhone: z
-    .string()
-    .trim()
-    .regex(phonePattern, "Escalation phone must be a valid phone number."),
-  agentTone: z.string().trim().max(200).optional(),
-  rawMarkdownUpload: z.string().max(100_000).optional(),
-});
-
+/** GET /api/businesses — every business the signed-in owner can switch to. */
 export async function GET() {
   try {
     const user = await requireUser();
-
     const businesses = await prisma.business.findMany({
       where: { ownerId: user.id },
       orderBy: { createdAt: "asc" },
-      include: {
-        channels: {
-          select: { channelType: true, status: true, autoSend: true },
-          orderBy: { channelType: "asc" },
-        },
+      select: {
+        id: true,
+        name: true,
+        businessType: true,
+        brainVersion: true,
+        autoSendEnabled: true,
         _count: { select: { chunks: true, tickets: true } },
       },
     });
 
-    return jsonOk({
+    return NextResponse.json({
       businesses: businesses.map((business) => ({
-        id: business.id,
+        businessId: business.id,
         name: business.name,
         businessType: business.businessType,
-        description: business.description,
-        agentTone: business.agentTone,
         brainVersion: business.brainVersion,
         autoSendEnabled: business.autoSendEnabled,
         chunkCount: business._count.chunks,
         ticketCount: business._count.tickets,
-        channels: business.channels,
-        createdAt: business.createdAt,
-        updatedAt: business.updatedAt,
       })),
     });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }
 
+/** POST /api/businesses — save onboarding and compile the brain (PRD §5.1). */
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = onboardingSchema.parse(await parseJsonBody(request));
+    const body = await readJson(request);
 
-    const { brainMd, chunks } = buildBusinessBrain({
-      ...body,
-      agentTone: body.agentTone ?? "Warm, concise, and helpful",
-      rawMarkdownUpload: body.rawMarkdownUpload ?? "",
+    const name = requireString(body, "name", { max: 120 });
+    const businessType = requireString(body, "businessType", { max: 80 });
+    const description = requireString(body, "description", { max: 4000 });
+    const productsServices = requireString(body, "productsServices", { max: 8000 });
+    const hours = requireString(body, "hours", { max: 1000 });
+    const returnPolicy = requireString(body, "returnPolicy", { max: 4000 });
+    const faqs = requireString(body, "faqs", { max: 8000 });
+    const escalationEmail = requireString(body, "escalationEmail", { max: 200 });
+    const escalationPhone = requireString(body, "escalationPhone", { max: 40 });
+    const agentTone = requireString(body, "agentTone", { max: 200, optional: true });
+    const rawMarkdownUpload = requireString(body, "rawMarkdownUpload", {
+      max: 20000,
+      optional: true,
     });
 
-    const business = await prisma.$transaction(async (tx) => {
-      const created = await tx.business.create({
-        data: {
-          ownerId: user.id,
-          name: body.name,
-          businessType: body.businessType,
-          description: body.description,
-          productsServices: body.productsServices,
-          hours: body.hours,
-          returnPolicy: body.returnPolicy,
-          faqs: body.faqs,
-          escalationEmail: body.escalationEmail,
-          escalationPhone: body.escalationPhone,
-          agentTone: body.agentTone ?? "Warm, concise, and helpful",
-          compiledBrainMd: brainMd,
-          brainVersion: 1,
-        },
-      });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(escalationEmail)) {
+      throw new HttpError(400, 'field "escalationEmail" must be a valid email address');
+    }
 
-      await tx.knowledgeChunk.createMany({
-        data: chunks.map((chunk) => ({
-          businessId: created.id,
-          chunkIndex: chunk.chunkIndex,
-          section: chunk.section,
-          content: chunk.content,
-          keywords: chunk.keywords,
-        })),
-      });
-
-      // Channels start disconnected and non-sending until the owner explicitly
-      // connects them — never claim a channel is live before it is.
-      await tx.channelConnection.createMany({
-        data: CHANNEL_TYPES.map((channelType) => ({
-          businessId: created.id,
-          channelType,
-          status: "UNAVAILABLE",
-          autoSend: false,
-        })),
-      });
-
-      return created;
+    const created = await createBusinessForOwner(user.id, {
+      name,
+      businessType,
+      description,
+      productsServices,
+      hours,
+      returnPolicy,
+      faqs,
+      escalationEmail,
+      escalationPhone,
+      agentTone: agentTone.length > 0 ? agentTone : "Warm, concise, and helpful",
+      rawMarkdownUpload,
     });
 
-    return jsonOk(
-      {
-        businessId: business.id,
-        name: business.name,
-        brainVersion: business.brainVersion,
-        chunkCount: chunks.length,
-      },
-      201
-    );
+    return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

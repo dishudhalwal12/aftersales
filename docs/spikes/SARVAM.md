@@ -142,3 +142,22 @@ escalation tickets and secret checks are covered by `tests/sarvam.test.ts`, and 
 tool endpoint with a real session row to see the same `groundedFacts` the agent would speak. A
 live call is still required to confirm the agent echoes the per-call variables and speaks the
 tool result verbatim.
+
+## 10. Status in this tree (merged from the `backend` branch)
+
+The backend was later rewritten on this branch: the voice code now lives in
+`src/server/voice/sarvam.ts` plus four routes (`start-session`, `sarvam-tool-search`,
+`sarvam-webhook`, and `sarvam-context`, which the original branch did not have). The
+architecture described in §3–§4 is unchanged; three contract names moved:
+
+| §9 said | This tree |
+|---|---|
+| `src/lib/sarvam.ts` | `src/server/voice/sarvam.ts` + route handlers |
+| webhook secret `x-sarvam-webhook-secret` / `SARVAM_WEBHOOK_SECRET` | `x-sarvam-token` / `SARVAM_WEBHOOK_TOKEN` |
+| outbound URL = `SARVAM_API_BASE_URL` + `SARVAM_OUTBOUND_PATH` | one full URL in `SARVAM_CALL_ENDPOINT` |
+
+The `x-sarvam-tool-secret` guard from §9 was **not** carried over: the tool endpoint is
+reachable by the voice platform with no shared secret and is scoped instead by the session
+id / demo PIN / caller phone it is called with (see the route's header comment). That is a
+deliberate hackathon trade-off, not an oversight — worth revisiting before a real deployment,
+because the PIN is short enough to guess.
