@@ -1,0 +1,126 @@
+// AfterSales AI — multi-tenant schema (PRD Section 3).
+// Every tenant-scoped table carries businessId so cross-business reads are
+// impossible when queries are always filtered by the authenticated business.
+
+datasource db {
+  provider = "sqlite" // Easily swappable to "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String?
+  passwordHash String?
+  googleId     String?
+  createdAt    DateTime   @default(now())
+  businesses   Business[]
+}
+
+model Business {
+  id               String              @id @default(cuid())
+  ownerId          String
+  owner            User                @relation(fields: [ownerId], references: [id])
+  name             String
+  businessType     String // e.g., "SaaS", "E-Commerce", "Healthcare Clinic"
+  description      String
+  productsServices String // JSON or Markdown text of catalog & prices
+  hours            String
+  returnPolicy     String
+  faqs             String // JSON array or Markdown FAQ pairs
+  escalationEmail  String
+  escalationPhone  String
+  agentTone        String              @default("Warm, concise, and helpful")
+  autoSendEnabled  Boolean             @default(true)
+  compiledBrainMd  String // Full normalized business_brain.md
+  brainVersion     Int                 @default(1)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  chunks           KnowledgeChunk[]
+  channels         ChannelConnection[]
+  tickets          Ticket[]
+  voiceSessions    VoiceTestSession[]
+}
+
+model KnowledgeChunk {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  section    String // e.g., "Pricing", "Return Policy", "FAQs", "Technical Troubleshooting"
+  content    String
+  keywords   String // Lowercase comma-separated tokens for fast hybrid search
+  createdAt  DateTime @default(now())
+
+  @@index([businessId])
+}
+
+model ChannelConnection {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  channelType String // "WHATSAPP" | "INSTAGRAM" | "GMAIL" | "SARVAM_VOICE"
+  status      String // "CONNECTED" | "TEST_MODE" | "DRAFT_ONLY" | "UNAVAILABLE"
+  autoSend    Boolean  @default(false)
+  configJson  String? // Encrypted metadata (never raw passwords)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([businessId, channelType])
+}
+
+model Ticket {
+  id                 String        @id @default(cuid())
+  businessId         String
+  business           Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  externalMessageId  String?       @unique // Prevents duplicate webhook processing
+  channel            String // "TEXT_MODAL" | "WHATSAPP" | "INSTAGRAM" | "GMAIL" | "VOICE"
+  customerName       String
+  customerHandle     String // Email, phone number, or IG handle
+  customerQuery      String
+  state              String // "new" | "triaged" | "replied" | "escalated" | "closed"
+  specialistAssigned String // "general" | "technical" | "sales"
+  intent             String
+  sentiment          String // "positive" | "neutral" | "frustrated" | "distressed"
+  urgencyScore       Int // 0 to 100
+  confidenceScore    Int // 0 to 100
+  actionStatus       String // "answered" | "draft" | "escalated" | "failed"
+  routingRuleHit     String // "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7"
+  aiDraftOrReply     String
+  citedChunkIds      String // JSON array of KnowledgeChunk IDs e.g. '["chk_1", "chk_2"]'
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  events             TicketEvent[]
+
+  @@index([businessId, state])
+}
+
+model TicketEvent {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  eventType String // "INBOUND_RECEIVED" | "RAG_RETRIEVED" | "ROUTING_DECIDED" | "AUTO_SENT" | "DRAFT_SAVED" | "ESCALATED"
+  payload   String // JSON details of the step
+  createdAt DateTime @default(now())
+}
+
+model VoiceTestSession {
+  id                  String   @id @default(cuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  demoPin             String // 4-digit fallback code e.g. "4821"
+  judgePhone          String
+  status              String // "initiated" | "ringing" | "in_progress" | "completed" | "failed"
+  sarvamInteractionId String?
+  transcript          String?
+  durationSeconds     Int?
+  escalationOutcome   String? // "resolved_by_ai" | "escalated_to_owner"
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+
+  @@index([businessId])
+  @@index([judgePhone, status])
+}

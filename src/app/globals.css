@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #f8f8f6;
+  --bg-card: rgba(255, 255, 255, 0.78);
+  --ink: #0a0a0a;
+  --muted: #52525b;
+  --hairline: rgba(10, 10, 10, 0.08);
+  --sent-bg: rgba(16, 185, 129, 0.15);
+  --sent-text: #065f46;
+  --draft-bg: rgba(245, 158, 11, 0.15);
+  --draft-text: #92400e;
+  --urgent-bg: rgba(239, 68, 68, 0.15);
+  --urgent-text: #991b1b;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--ink);
+}
+
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+}
