@@ -18,8 +18,8 @@
 | `1:05–1:18` | Same question, other tenant | Modal → business switcher → Jaipur Smile Studio → ask the Pro Plan question | Read the result | Confidence drops to **20**, badge **R2**, "no chunk was cited" | `Same question, different business → it refuses to guess` |
 | `1:18–1:34` | Show the work | Panel 1 → open an escalated ticket | Scroll the event trail | `INBOUND_RECEIVED → RAG_RETRIEVED → ROUTING_DECIDED (R2) → ESCALATED`, with cited chunk ids | `Every decision, with the rule that made it` |
 | `1:34–1:50` | Idempotency | Panel 4 — Channels | Select Instagram → **Deliver twice** | "Two deliveries, one ticket — the unique externalMessageId absorbed the replay" | `A replayed webhook cannot answer twice` |
-| `1:50–2:10` | Voice, honestly | Panel 2 — Voice test | **Call me now** → **Run tool search** → **Record completed call** | Session + 4-digit PIN, dry-run banner, grounded fact with `chk_cp_04`, then a VOICE ticket in the queue | `Same number, per-call business context — the call leg needs Sarvam keys` |
-| `2:10–2:20` | Bonus twist | Panel 3 — Brain & insights | none | Sentiment mix, escalation rate, recurring complaints grouped by intent | `Weekly recurring complaints, computed from the same tickets` |
+| `1:50–2:12` | Voice, two businesses | Panel 2 — Voice test | **Call me now** (CloudPulse) → **Run tool search** with "What is the price of the Pro Plan and does it include WhatsApp invoicing?" → switcher → Jaipur Smile Studio → **Call me now** → send the same question | A answers ₹1,499 with `chk_cp_02`; the clinic lands at confidence **20** with no citation and "A human from Jaipur Smile Studio can help"; the **Last call** card then shows the saved transcript, duration and outcome from the database | `One number, per-call context. When it cannot ground an answer, it says so` |
+| `2:12–2:20` | Bonus twist | Panel 3 — Brain & insights | none | Sentiment mix, escalation rate, recurring complaints grouped by intent | `Weekly recurring complaints, computed from the same tickets` |
 
 ## Fallbacks
 
@@ -28,6 +28,8 @@
 | 4 | OpenRouter key is set and the model returns something odd | Switch `LLM_PROVIDER=heuristic` and restart: the offline classifier is deterministic and labelled |
 | 6 | Another tenant's ticket id returns 200 | Stop. That is a security bug — check `loadOwnedBusiness()` before recording anything else |
 | 8 | The voice panel has real Sarvam keys | The call will actually ring. Say so; do not claim a dry run when a phone is ringing |
+| 9 | The clinic answers the Pro Plan question instead of escalating | Stop. That is a grounding bug — `npm run verify:phase4` fails its AT-04 group for the same reason |
+| 9 | `npm run verify:phase4` is red on the dashboard group | Do not record: the transcript on screen would be React state, not the database's row |
 | Any | Database was reset mid-session | `npm run db:setup` and restart — the seed is idempotent |
 
 ## Honesty notes — say these, do not hide them

@@ -48,10 +48,11 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # 120 tests, native runner, no test dependencies
+npm test             # 148 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
+npm run verify:phase4 # boots the app and asserts the voice gate over HTTP + the DB
 npm run db:reset     # wipe and re-seed
 ```
 
@@ -176,7 +177,7 @@ No secret is read in a client component. `.env` is gitignored; `.env.example` ho
 | AT-01 | landing → auth → onboarding/dashboard | live pages; `postAuthPath()` redirect rule |
 | AT-02 | onboarding persists, compiles versioned chunks | `POST /api/businesses` → `brainVersion` + `chunkCount` |
 | AT-03 | same question, per-business answers | Pro Plan under CloudPulse → ₹1,499 (R6); under the clinic → R2 escalate |
-| AT-04 | voice personalisation per tenant | two sessions on one number; A returns ₹1,499, B returns R2 escalation |
+| AT-04 | voice personalisation per tenant | `npm run verify:phase4` — one phone, A answers ₹1,499 under R6, the clinic's same question escalates below 50 with no citation |
 | AT-05 | strict tenant isolation | `POST /api/ai/text-query` with the third tenant → `403` |
 | AT-06 | confidence 49 never sends | `tests/lib/routing-engine.test.ts` (49 → R2, 50 + chunk → R6) |
 | AT-07 | urgency ≥ 80 escalates | unit test + "urgent but grounded" chip in the text modal → R4 |
@@ -186,7 +187,8 @@ No secret is read in a client component. `.env` is gitignored; `.env.example` ho
 | AT-11 | missing/broken classifier fails safe | `LLM_PROVIDER=openrouter` with no key → R7 `failed`, nothing sent |
 | AT-12 | no secret reaches the client | secrets read only in route handlers / server components; `.env` gitignored |
 
-Run `npm test` for AT-06…AT-11 as executable assertions.
+Run `npm test` for AT-06…AT-11 as executable assertions, and `npm run verify:phase4` for the voice
+half of AT-04/AT-05/AT-09 plus AT-12 (no Sarvam key in any rendered page).
 
 ---
 
@@ -196,7 +198,9 @@ Run `npm test` for AT-06…AT-11 as executable assertions.
    so they read like your own KB sentences, not like prose. It exists so the routing contract is
    demonstrable without a key — and it is labelled on every screen that uses it.
 2. **No telephony in this deployment.** The voice path is real up to the call: session, PIN, scoped
-   retrieval and ticket write-back. The dial itself needs Sarvam credentials.
+   retrieval and ticket write-back. The dial itself needs Sarvam credentials — without them the panel
+   says **dry run** in the API response and on screen, and the last completed call (transcript,
+   duration, outcome) is still read back from the database.
 3. **Channel transports are simulated.** The webhook contract, idempotency and routing are real; the
    WhatsApp/Instagram/Gmail hops are not connected.
 4. **The knowledge base is sample content we wrote.** The retrieval is real; the corpus is not a

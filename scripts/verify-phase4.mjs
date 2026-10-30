@@ -350,6 +350,319 @@ async function resolution() {
   expect("an expired session answers 410", stale.status === 410, `status ${stale.status}`);
 }
 
+async function personalization() {
+  const question = "What is the price of the Pro Plan and does it include WhatsApp invoicing?";
+  const cloudpulse = sessions.get(CLOUDPULSE);
+  expect("the CloudPulse session exists before the A→B run", cloudpulse !== undefined, "missing");
+  if (cloudpulse === undefined) return;
+
+  const owned = await post("/api/voice/sarvam-tool-search", {
+    sessionId: cloudpulse.sessionId,
+    query: question,
+  });
+  const ownedBody = parseJson(owned.body);
+  expect(
+    "AT-04: Business A answers with its own confidence",
+    typeof ownedBody?.confidenceScore === "number" && ownedBody.confidenceScore >= 50,
+    `confidence ${String(ownedBody?.confidenceScore)}`,
+  );
+  expect(
+    "AT-04: Business A cites its own chunk",
+    Array.isArray(ownedBody?.citedChunkIds) && String(ownedBody.citedChunkIds[0]).startsWith("chk_cp_"),
+    JSON.stringify(ownedBody?.citedChunkIds),
+  );
+  expectIncludes(String(ownedBody?.groundedFacts), "₹1,499", "AT-04: Business A speaks the Pro Plan price");
+
+  // Same number, immediately after: the clinic. Nothing above may have been mutated.
+  const started = await post(
+    "/api/voice/start-session",
+    { businessId: CLINIC, judgePhone: CALLER_PHONE },
+    judgeCookie,
+  );
+  const clinic = parseJson(started.body);
+  expect("AT-04: a second business starts on the same phone", started.status === 200, `status ${started.status}`);
+  if (clinic === null) return;
+  sessions.set(CLINIC, clinic);
+
+  const wrongTenant = parseJson(
+    (await post("/api/voice/sarvam-tool-search", { sessionId: clinic.sessionId, query: question })).body,
+  );
+  expect(
+    "AT-04: the clinic refuses the Pro Plan question",
+    wrongTenant?.escalateToHuman === true,
+    `escalateToHuman ${String(wrongTenant?.escalateToHuman)}`,
+  );
+  expect(
+    "AT-04: the clinic stays below the confidence floor",
+    typeof wrongTenant?.confidenceScore === "number" && wrongTenant.confidenceScore < 50,
+    `confidence ${String(wrongTenant?.confidenceScore)}`,
+  );
+  expect(
+    "AT-04: the clinic cites nothing it cannot ground",
+    Array.isArray(wrongTenant?.citedChunkIds) && wrongTenant.citedChunkIds.length === 0,
+    JSON.stringify(wrongTenant?.citedChunkIds),
+  );
+  expect(
+    "AT-04: no CloudPulse fact is spoken on the clinic's call",
+    !String(wrongTenant?.groundedFacts).includes("₹1,499") &&
+      !String(wrongTenant?.groundedFacts).includes("₹499"),
+    String(wrongTenant?.groundedFacts).slice(0, 120),
+  );
+
+  const clinicOwn = parseJson(
+    (
+      await post("/api/voice/sarvam-tool-search", {
+        sessionId: clinic.sessionId,
+        query: "What are your prices and hours?",
+      })
+    ).body,
+  );
+  expect(
+    "AT-04: the clinic answers its own price question",
+    typeof clinicOwn?.confidenceScore === "number" && clinicOwn.confidenceScore >= 50,
+    `confidence ${String(clinicOwn?.confidenceScore)}`,
+  );
+  expectIncludes(String(clinicOwn?.groundedFacts), "₹1,200", "AT-04: the clinic speaks its own prices");
+  expect(
+    "AT-04: the clinic cites its own chunk",
+    Array.isArray(clinicOwn?.citedChunkIds) && String(clinicOwn.citedChunkIds[0]).startsWith("chk_js_"),
+    JSON.stringify(clinicOwn?.citedChunkIds),
+  );
+
+  const prisma = await database();
+  const rows = await prisma.voiceTestSession.findMany({
+    where: { judgePhone: CALLER_PHONE },
+    select: { id: true, businessId: true },
+  });
+  const byId = new Map(rows.map((row) => [row.id, row.businessId]));
+  expect(
+    "AT-04: each session still names its own business — the shared agent was never mutated",
+    byId.get(cloudpulse.sessionId) === CLOUDPULSE && byId.get(clinic.sessionId) === CLINIC,
+    JSON.stringify([...byId.entries()]),
+  );
+}
+
+async function completion() {
+  const clinic = sessions.get(CLINIC);
+  expect("the clinic session exists before completion", clinic !== undefined, "missing");
+  if (clinic === undefined) return;
+
+  const transcript = `${RUN}: Caller asked about a Pro Plan on a dental site. The clinic escalated to its front desk.`;
+  const reported = await post(
+    "/api/voice/sarvam-webhook",
+    {
+      sessionId: clinic.sessionId,
+      status: "completed",
+      transcript,
+      durationSeconds: 96,
+      escalateToHuman: true,
+      // A foreign chunk id on purpose: the agent escalated, and chk_cp_02 is CloudPulse's.
+      citedChunkIds: ["chk_cp_02"],
+    },
+    judgeCookie,
+  );
+  expect("POST /api/voice/sarvam-webhook returns 200", reported.status === 200, `status ${reported.status}`);
+  const body = parseJson(reported.body);
+  if (body === null) {
+    expect("the completion returns JSON", false, reported.body.slice(0, 160));
+    return;
+  }
+
+  expect("the completion is the first report", body.duplicate === false, `duplicate ${String(body.duplicate)}`);
+  expect("the session is completed", body.sessionStatus === "completed", String(body.sessionStatus));
+  expect(
+    "PRD §3: the outcome stays inside the frozen enum",
+    ESCALATION_OUTCOMES.includes(String(body.escalationOutcome)),
+    `escalationOutcome ${String(body.escalationOutcome)}`,
+  );
+  expect("the caller who needed a human is escalated", body.actionStatus === "escalated", String(body.actionStatus));
+  expect("the escalation is rule R1", body.routingRuleHit === "R1", String(body.routingRuleHit));
+
+  const prisma = await database();
+  const stored = await prisma.voiceTestSession.findUnique({ where: { id: clinic.sessionId } });
+  expect("the transcript is persisted", stored?.transcript === transcript, String(stored?.transcript).slice(0, 80));
+  expect("the duration is persisted", stored?.durationSeconds === 96, String(stored?.durationSeconds));
+
+  const ticket = await prisma.ticket.findFirst({
+    where: { externalMessageId: `voice:${clinic.sessionId}` },
+  });
+  expect("the call creates a ticket keyed by the session", ticket !== null, "no ticket with that external id");
+  if (ticket === null) return;
+  expect("the ticket is a VOICE ticket", ticket.channel === "VOICE", ticket.channel);
+  expect("the ticket lands on the session's business", ticket.businessId === CLINIC, ticket.businessId);
+  expect("the ticket is escalated", ticket.state === "escalated", ticket.state);
+  expect(
+    "AT-09: the foreign citation is not stored on the ticket",
+    !ticket.citedChunkIds.includes("chk_cp_02"),
+    ticket.citedChunkIds,
+  );
+
+  const detail = parseJson(
+    (await get(`/api/businesses/${CLINIC}/tickets?ticketId=${ticket.id}`, judgeCookie)).body,
+  );
+  expect(
+    "the ticket carries its three events",
+    Array.isArray(detail?.events) && detail.events.length === 3,
+    `${Array.isArray(detail?.events) ? detail.events.length : "no"} events`,
+  );
+}
+
+async function ungroundedCompletion() {
+  const cloudpulse = sessions.get(CLOUDPULSE);
+  expect("the CloudPulse session exists for the ungrounded run", cloudpulse !== undefined, "missing");
+  if (cloudpulse === undefined) return;
+
+  const second = await post(
+    "/api/voice/start-session",
+    { businessId: CLOUDPULSE, judgePhone: CALLER_PHONE },
+    judgeCookie,
+  );
+  const session = parseJson(second.body);
+  if (session === null) {
+    expect("a second CloudPulse session starts", false, second.body.slice(0, 160));
+    return;
+  }
+
+  const reported = parseJson(
+    (
+      await post(
+        "/api/voice/sarvam-webhook",
+        {
+          sessionId: session.sessionId,
+          status: "completed",
+          transcript: `${RUN}: caller said something the agent could not ground.`,
+          durationSeconds: 41,
+          escalateToHuman: false,
+          // The clinic's chunk, offered to a CloudPulse session.
+          citedChunkIds: ["chk_js_02"],
+        },
+        judgeCookie,
+      )
+    ).body,
+  );
+  expect(
+    "AT-09: a foreign citation never marks a voice reply answered",
+    reported?.actionStatus === "draft",
+    String(reported?.actionStatus),
+  );
+  expect(
+    "an ungrounded call is held as a draft under R5",
+    reported?.routingRuleHit === "R5",
+    String(reported?.routingRuleHit),
+  );
+
+  const prisma = await database();
+  const ticket = await prisma.ticket.findFirst({
+    where: { externalMessageId: `voice:${session.sessionId}` },
+  });
+  expect(
+    "the draft ticket cites nothing",
+    ticket !== null && ticket.citedChunkIds === "[]",
+    String(ticket?.citedChunkIds),
+  );
+}
+
+async function replay() {
+  const clinic = sessions.get(CLINIC);
+  if (clinic === undefined) {
+    expect("the clinic session exists before the replay", false, "missing");
+    return;
+  }
+  const prisma = await database();
+  const before = await prisma.voiceTestSession.findUnique({ where: { id: clinic.sessionId } });
+  const original = await prisma.ticket.findFirst({
+    where: { externalMessageId: `voice:${clinic.sessionId}` },
+  });
+
+  const again = await post(
+    "/api/voice/sarvam-webhook",
+    {
+      sessionId: clinic.sessionId,
+      status: "completed",
+      transcript: "A replay must not replace the first transcript.",
+      durationSeconds: 5,
+      escalateToHuman: false,
+      citedChunkIds: [],
+    },
+    judgeCookie,
+  );
+  expect("a replayed completion returns 200", again.status === 200, `status ${again.status}`);
+  const body = parseJson(again.body);
+  expect("AT-10: the replay is marked duplicate", body?.duplicate === true, String(body?.duplicate));
+  expect(
+    "AT-10: the replay names the original ticket",
+    typeof body?.ticketId === "string" && body.ticketId === original?.id,
+    `${String(body?.ticketId)} vs ${String(original?.id)}`,
+  );
+
+  const count = await prisma.ticket.count({
+    where: { externalMessageId: `voice:${clinic.sessionId}` },
+  });
+  expect("AT-10: one call is one ticket", count === 1, `tickets ${count}`);
+
+  const after = await prisma.voiceTestSession.findUnique({ where: { id: clinic.sessionId } });
+  expect(
+    "AT-10: the replay never overwrites the first transcript or duration",
+    after?.transcript === before?.transcript && after?.durationSeconds === before?.durationSeconds,
+    JSON.stringify({ transcript: after?.transcript?.slice(0, 40), duration: after?.durationSeconds }),
+  );
+}
+
+async function dashboard() {
+  const page = await get(`/dashboard?tab=voice&business=${CLINIC}`, judgeCookie);
+  expect("GET /dashboard?tab=voice returns 200", page.status === 200, `status ${page.status}`);
+  expectIncludes(page.body, "data-last-call=", "the last call card is rendered from the database");
+  expectIncludes(page.body, "data-voice-transcript", "the transcript block is rendered");
+  expectIncludes(
+    page.body,
+    "The clinic escalated to its front desk.",
+    "the persisted transcript appears in the dashboard",
+  );
+  expectIncludes(page.body, "96s", "the persisted duration appears in the dashboard");
+  expect(
+    "AT-12: the Sarvam key never reaches the page",
+    !page.body.includes(FAKE_SARVAM_KEY),
+    "the spawned server's SARVAM_API_KEY was found in the HTML",
+  );
+}
+
+async function webhookAuth() {
+  const clinic = sessions.get(CLINIC);
+  if (clinic === undefined) {
+    expect("the clinic session exists before the auth checks", false, "missing");
+    return;
+  }
+
+  const anonymous = await post("/api/voice/sarvam-webhook", {
+    sessionId: clinic.sessionId,
+    status: "completed",
+  });
+  expect(
+    "a completion without a session or platform token answers 401",
+    anonymous.status === 401,
+    `status ${anonymous.status}`,
+  );
+
+  const prisma = await database();
+  const rival = await prisma.business.findUnique({ where: { id: RIVAL } });
+  if (rival === null) {
+    expect("the rival tenant exists (seed ran)", false, `${RIVAL} not found`);
+    return;
+  }
+  const { signSessionToken } = await import("../src/server/auth/crypto.ts");
+  const rivalCookie = `as_session=${signSessionToken(rival.ownerId)}`;
+  const foreign = await post(
+    "/api/voice/sarvam-webhook",
+    { sessionId: clinic.sessionId, status: "completed" },
+    rivalCookie,
+  );
+  expect(
+    "AT-05: another tenant cannot complete this call",
+    foreign.status === 403,
+    `status ${foreign.status}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -363,6 +676,12 @@ async function main() {
   await group("session — one business, one PIN, ten minutes", startSessionGroup);
   await group("isolation — AT-05", isolation);
   await group("resolution — sessionId / demoPin / callerPhone / expiry", resolution);
+  await group("personalization — AT-04, one number, two businesses", personalization);
+  await group("completion — transcript, duration, VOICE ticket", completion);
+  await group("ungrounded completion — AT-09", ungroundedCompletion);
+  await group("replay — AT-10", replay);
+  await group("dashboard — the last call is on screen", dashboard);
+  await group("webhook auth — AT-05, platform token", webhookAuth);
 
   // Later tasks append their groups above this line.
 }

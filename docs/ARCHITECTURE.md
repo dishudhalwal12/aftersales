@@ -98,6 +98,7 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | `cited_chunk_ids` from the model | untrusted | filtered against the business's real chunk ids ⇒ R2 if empty |
 | Webhook `externalMessageId` | the idempotency key | replay returns the original ticket with `duplicate: true` |
 | Voice `demoPin` / `sessionId` | the capability that scopes a call | expired session ⇒ `410`, wrong tenant ⇒ `403` |
+| Voice `citedChunkIds` from the platform | evidence, not authority | kept only when the id is this business's chunk ⇒ R5 draft otherwise |
 | The end customer | always unauthenticated | zero customer credentials exist to leak |
 
 ## Voice: one number, per-call context
@@ -115,10 +116,18 @@ sequenceDiagram
   API-->>Owner: sessionId + demoPin + callMode
   Agent->>Tool: sessionId / demoPin + query
   Tool->>Tool: resolve session → search that business's chunks
+  Tool->>Tool: retrievalConfidence < 50 ⇒ escalate, cite nothing
   Tool-->>Agent: groundedFacts + citedChunkIds + confidence + escalate
   Agent->>API: webhook (transcript, duration, escalated?)
-  API->>Queue: VOICE ticket + events
+  API->>Queue: VOICE ticket keyed voice:<sessionId> (a replay is not a second ticket)
 ```
+
+The voice path holds the **same confidence floor as text** (`retrievalConfidence`, not its own
+arithmetic): below 50 it escalates and cites nothing, because a wrong answer is spoken out loud
+rather than read. A completion webhook's citations are filtered against that business's chunk ids,
+and its ticket is keyed `voice:<sessionId>`, so re-reporting one call never answers twice. The
+completed call's transcript, duration and outcome are read back from the database by
+`/dashboard?tab=voice`, not from the tab that recorded it.
 
 The shared number is never mutated: the business is a **per-call variable**, resolved from the session
 the owner just created. That is what makes AT-04 (same number, two businesses, no bleed) true.
@@ -127,7 +136,7 @@ the owner just created. That is what makes AT-04 (same number, two businesses, n
 
 | | |
 |---|---|
-| **Real** | R1–R7 · scoped BM25 · brain compile/chunk/cite · onboarding · queue + drawer + events · human actions · idempotent webhooks · insights · voice session lifecycle |
+| **Real** | R1–R7 · scoped BM25 · brain compile/chunk/cite · onboarding · queue + drawer + events · human actions · idempotent webhooks · insights · voice session lifecycle + idempotent completion |
 | **Conditional** | OpenRouter classifier (needs a key) — otherwise a labelled offline classifier |
 | **Simulated, labelled** | WhatsApp/Instagram/Gmail transports; the Sarvam telephone leg |
 | **Superseded** | `docs/product/CAPABILITY.md` — the Pipecat/Laya/MCP design this repository started from |
