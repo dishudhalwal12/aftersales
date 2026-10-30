@@ -13,7 +13,13 @@ export type RuleId = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7";
 
 export type TicketState = "new" | "triaged" | "replied" | "escalated" | "closed";
 
-export type TicketChannel = "TEXT_MODAL" | "WHATSAPP" | "INSTAGRAM" | "GMAIL" | "VOICE";
+export type TicketChannel =
+  | "TEXT_MODAL"
+  | "WHATSAPP"
+  | "FACEBOOK"
+  | "INSTAGRAM"
+  | "GMAIL"
+  | "VOICE";
 
 /** The single structured object every classifier call must produce (PRD §4.2). */
 export interface LlmResponse {

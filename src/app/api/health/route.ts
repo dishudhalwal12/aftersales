@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import {
+  isIntegrationEncryptionConfigured,
+  isOAuthStateSigningConfigured,
+} from "../../../server/integrations/crypto.ts";
+import { isEmailProviderSupported, readEmailProviderSettings } from "../../../server/integrations/email.ts";
+import { isMetaConfigured } from "../../../server/integrations/meta.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +19,15 @@ export function GET() {
     service: "aftersales-ai",
     team: "Team 41",
     problemStatement: "PS 2.5 AI Agent for Automated Customer Support and Ticket Triage",
+    integrations: {
+      encryptionConfigured: isIntegrationEncryptionConfigured(),
+      oauthStateConfigured: isOAuthStateSigningConfigured(),
+      emailProviderConfigured:
+        isEmailProviderSupported(readEmailProviderSettings().provider) &&
+        readEmailProviderSettings().configured,
+      emailPollingScheduled: Boolean(process.env.CRON_SECRET?.trim()),
+      metaConfigured: isMetaConfigured(),
+    },
     time: new Date().toISOString(),
   });
 }

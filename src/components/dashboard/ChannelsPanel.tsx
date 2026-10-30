@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, emitDataChanged } from "./client.ts";
+import { IntegrationsPanel } from "./IntegrationsPanel.tsx";
 import type { ChannelStateResponse, WebhookResponse } from "../../shared/api.ts";
 
 const PROVIDERS = [
   { key: "whatsapp", label: "WhatsApp", note: "Inbound webhook + simulated inbox" },
-  { key: "instagram", label: "Instagram DM", note: "Meta app scope pending on real deployments" },
-  { key: "gmail", label: "Gmail", note: "OAuth not configured on this deployment" },
+  { key: "instagram", label: "Instagram DM", note: "Connect a Page or IG account under Connected accounts" },
+  { key: "gmail", label: "Gmail", note: "Connect the owner mailbox under Connected accounts" },
 ] as const;
 
 const STATUS_COPY: Readonly<Record<string, { className: string; label: string }>> = {
@@ -21,10 +22,12 @@ export function ChannelsPanel({
   businessId,
   sarvamConfigured,
   virtualNumber,
+  baileysConfigured,
 }: {
   businessId: string;
   sarvamConfigured: boolean;
   virtualNumber: string | null;
+  baileysConfigured: boolean;
 }) {
   const [states, setStates] = useState<Record<string, ChannelStateResponse>>({});
   const [provider, setProvider] = useState<string>("whatsapp");
@@ -156,6 +159,8 @@ export function ChannelsPanel({
           </div>
         </div>
       </div>
+
+      <IntegrationsPanel businessId={businessId} baileysConfigured={baileysConfigured} />
 
       <div className="glass panel" style={{ marginTop: 16 }}>
         <p className="eyebrow" style={{ marginBottom: 10 }}>

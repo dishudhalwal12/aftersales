@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 const CHANNELS: ReadonlySet<string> = new Set([
   "TEXT_MODAL",
   "WHATSAPP",
+  "FACEBOOK",
   "INSTAGRAM",
   "GMAIL",
   "VOICE",

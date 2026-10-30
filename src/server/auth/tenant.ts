@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
 import type { Business } from "@prisma/client";
 import { prisma } from "../db.ts";
+import { HttpError } from "./http-error.ts";
 import { getCurrentUser, type SessionUser } from "./session.ts";
 
-/** A status-carrying error the API layer knows how to serialize. */
-export class HttpError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-  }
-}
+export { HttpError } from "./http-error.ts";
 
 /**
  * Tenant boundary. A business is only readable by the user who owns it —

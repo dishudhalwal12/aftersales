@@ -20,6 +20,7 @@ export interface CreateBusinessResult {
 
 const DEFAULT_CHANNELS: ReadonlyArray<{ type: string; status: string; autoSend: boolean }> = [
   { type: "WHATSAPP", status: "TEST_MODE", autoSend: false },
+  { type: "FACEBOOK", status: "UNAVAILABLE", autoSend: false },
   { type: "INSTAGRAM", status: "DRAFT_ONLY", autoSend: false },
   { type: "GMAIL", status: "TEST_MODE", autoSend: false },
   { type: "SARVAM_VOICE", status: "TEST_MODE", autoSend: false },
