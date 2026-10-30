@@ -36,7 +36,11 @@ export function authBaseUrl(env: Env = process.env): string {
   return base.replace(/\/+$/, "");
 }
 
-/** Must be listed under Authentication → URL Configuration → Redirect URLs in Supabase. */
+/**
+ * Hop 2 of the handshake, and the only callback this app implements:
+ * Google → https://<ref>.supabase.co/auth/v1/callback → here.
+ * See docs/AUTH.md for all three URLs and where each one is configured.
+ */
 export function googleCallbackUrl(base: string): string {
   return `${base.replace(/\/+$/, "")}/auth/callback`;
 }
