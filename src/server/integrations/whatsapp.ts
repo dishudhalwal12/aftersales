@@ -11,16 +11,18 @@ import { randomBytes } from "node:crypto";
 
 import type { ChannelConnection } from "@prisma/client";
 
-import { ApiError } from "./api";
+import { respondToContact, type InboundContact, type RespondResult } from "../business/service.ts";
+import { prisma } from "../db.ts";
 import {
   sendBaileysMessage,
   type BaileysConnectionSnapshot,
   type BaileysConnectionStatus,
-} from "./baileys";
-import { handleInboundWebhook } from "./channel-webhook";
-import { isChannelStatus, readChannelConfig } from "./channels";
-import { prisma } from "./db";
-import type { TriageDependencies } from "./triage";
+} from "./baileys.ts";
+import { isChannelStatus, readChannelConfig } from "./channels.ts";
+import { IntegrationError } from "./errors.ts";
+
+/** Inbound hand-off, injectable so tests can exercise the flow without the LLM. */
+export type WhatsappRespond = (contact: InboundContact) => Promise<RespondResult>;
 
 export const WHATSAPP_CONNECTION_ID_PREFIX = "wa_";
 const WHATSAPP_CONNECTION_ID_PATTERN = /^wa_[A-Za-z0-9_-]{8,72}$/;
@@ -131,7 +133,7 @@ export async function applyBaileysStatus(
 ): Promise<ChannelConnection> {
   const channel = await findWhatsappChannelByConnectionId(event.connectionId);
   if (!channel) {
-    throw new ApiError(401, "UNAUTHORIZED", "Unknown WhatsApp connection.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Unknown WhatsApp connection.");
   }
 
   if (event.businessId && event.businessId !== channel.businessId) {
@@ -195,7 +197,7 @@ type SendFn = (
 ) => Promise<{ messageId: string }>;
 
 export type WhatsappDependencies = {
-  llm?: TriageDependencies["llm"];
+  respond?: WhatsappRespond;
   send?: SendFn;
 };
 
@@ -205,44 +207,40 @@ export async function processWhatsappInbound(
 ): Promise<WhatsappInboundOutcome> {
   const channel = await findWhatsappChannelByConnectionId(message.connectionId);
   if (!channel) {
-    throw new ApiError(401, "UNAUTHORIZED", "Unknown WhatsApp connection.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Unknown WhatsApp connection.");
   }
 
   const business = await prisma.business.findUnique({
     where: { id: channel.businessId },
   });
   if (!business) {
-    throw new ApiError(401, "UNAUTHORIZED", "Unknown WhatsApp connection.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Unknown WhatsApp connection.");
   }
 
-  // Reuses the Phase 3 pipeline: tenant scoping, externalMessageId idempotency,
+  // Reuses the shared pipeline: tenant scoping, externalMessageId idempotency,
   // triage, and the R1-R7 decision that decides whether a reply may be sent.
-  const outcome = await handleInboundWebhook(
-    {
-      business,
-      provider: "WHATSAPP",
-      externalMessageId: message.messageId,
-      customerName: message.sender,
-      customerHandle: message.sender,
-      message: message.text,
-    },
-    { llm: deps.llm }
-  );
+  const outcome = await (deps.respond ?? respondToContact)({
+    business,
+    channel: "WHATSAPP",
+    externalMessageId: message.messageId,
+    customerName: message.sender,
+    customerHandle: message.sender,
+    query: message.text,
+  });
 
-  const result = outcome.result;
   let replySent = false;
   let replyError: string | null = null;
 
-  if (!outcome.duplicate && result.shouldAutoSend && result.answer.trim()) {
+  if (!outcome.duplicate && outcome.shouldAutoSend && outcome.answer.trim()) {
     const send = deps.send ?? sendBaileysMessage;
     try {
-      await send(message.connectionId, business.id, message.sender, result.answer);
+      await send(message.connectionId, business.id, message.sender, outcome.answer);
       replySent = true;
     } catch (error) {
-      replyError = error instanceof ApiError ? error.code : "WHATSAPP_SEND_FAILED";
+      replyError = error instanceof IntegrationError ? error.reason : "WHATSAPP_SEND_FAILED";
       console.error("[whatsapp] auto-reply failed", {
         connectionId: message.connectionId,
-        ticketId: result.ticketId,
+        ticketId: outcome.ticketId,
         error: error instanceof Error ? error.message : error,
       });
     }
@@ -250,10 +248,10 @@ export async function processWhatsappInbound(
 
   return {
     duplicate: outcome.duplicate,
-    ticketId: result.ticketId,
-    businessId: result.businessId,
-    routingRuleHit: result.routingRuleHit,
-    actionStatus: result.actionStatus,
+    ticketId: outcome.ticketId,
+    businessId: outcome.businessId,
+    routingRuleHit: outcome.routingRuleHit,
+    actionStatus: outcome.actionStatus,
     replySent,
     replyError,
   };

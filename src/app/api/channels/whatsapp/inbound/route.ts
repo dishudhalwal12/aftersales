@@ -1,39 +1,33 @@
-import { z } from "zod";
-
-import { BAILEYS_SECRET_HEADER, assertBaileysSecret } from "@/lib/baileys";
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { processWhatsappInbound } from "@/lib/whatsapp";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  readJson,
+  requireString,
+} from "../../../../../server/auth/tenant.ts";
+import {
+  BAILEYS_SECRET_HEADER,
+  assertBaileysSecret,
+} from "../../../../../server/integrations/baileys.ts";
+import { processWhatsappInbound } from "../../../../../server/integrations/whatsapp.ts";
 
 export const dynamic = "force-dynamic";
 
 // Sent by the local Baileys service for every text message. Authentication is
 // the shared service secret; the tenant is resolved from connectionId, never
 // from anything the message claims about itself.
-const inboundSchema = z.object({
-  connectionId: z.string().trim().min(8).max(80),
-  messageId: z.string().trim().min(1).max(200),
-  sender: z.string().trim().min(1).max(200),
-  recipient: z.string().trim().max(200).optional(),
-  text: z.string().trim().min(1).max(2000),
-  messageType: z.literal("text").optional(),
-  timestamp: z.number().optional(),
-  direction: z.literal("inbound").optional(),
-});
-
 export async function POST(request: Request) {
   try {
     assertBaileysSecret(request.headers.get(BAILEYS_SECRET_HEADER));
 
-    const body = inboundSchema.parse(await parseJsonBody(request));
-    const outcome = await processWhatsappInbound({
-      connectionId: body.connectionId,
-      messageId: body.messageId,
-      sender: body.sender,
-      text: body.text,
-    });
+    const body = await readJson(request);
+    const connectionId = requireString(body, "connectionId", { max: 80 });
+    const messageId = requireString(body, "messageId", { max: 200 });
+    const sender = requireString(body, "sender", { max: 200 });
+    const text = requireString(body, "text", { max: 2000 });
 
-    return jsonOk(outcome);
+    const outcome = await processWhatsappInbound({ connectionId, messageId, sender, text });
+    return NextResponse.json(outcome);
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

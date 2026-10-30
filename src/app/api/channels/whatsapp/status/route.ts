@@ -1,45 +1,54 @@
-import { z } from "zod";
-
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  readJson,
+  requireString,
+} from "../../../../../server/auth/tenant.ts";
 import {
   BAILEYS_SECRET_HEADER,
-  BAILEYS_STATUSES,
   assertBaileysSecret,
-} from "@/lib/baileys";
-import { applyBaileysStatus } from "@/lib/whatsapp";
+  isBaileysStatus,
+} from "../../../../../server/integrations/baileys.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { applyBaileysStatus } from "../../../../../server/integrations/whatsapp.ts";
 
 export const dynamic = "force-dynamic";
 
 // Connection lifecycle events from the local service. An unknown connectionId
 // is rejected so a stray service cannot flip another tenant's channel.
-const statusSchema = z.object({
-  connectionId: z.string().trim().min(8).max(80),
-  businessId: z.string().trim().max(80).optional(),
-  status: z.enum(BAILEYS_STATUSES),
-  phoneNumber: z.string().trim().max(40).nullable().optional(),
-  lastError: z.string().trim().max(500).nullable().optional(),
-});
-
 export async function POST(request: Request) {
   try {
     assertBaileysSecret(request.headers.get(BAILEYS_SECRET_HEADER));
 
-    const body = statusSchema.parse(await parseJsonBody(request));
+    const body = await readJson(request);
+    const connectionId = requireString(body, "connectionId", { max: 80 });
+    if (!isBaileysStatus(body.status)) {
+      throw new IntegrationError(400, "VALIDATION_ERROR", "status is not a known WhatsApp status");
+    }
+    const status = body.status;
+    const businessId =
+      typeof body.businessId === "string" && body.businessId.trim()
+        ? body.businessId.trim().slice(0, 80)
+        : undefined;
+    const phoneNumber =
+      typeof body.phoneNumber === "string" ? body.phoneNumber.trim().slice(0, 40) : null;
+    const lastError = typeof body.lastError === "string" ? body.lastError.slice(0, 500) : null;
+
     const channel = await applyBaileysStatus({
-      connectionId: body.connectionId,
-      businessId: body.businessId,
-      status: body.status,
-      phoneNumber: body.phoneNumber ?? null,
-      lastError: body.lastError ?? null,
+      connectionId,
+      businessId: businessId ?? null,
+      status,
+      phoneNumber,
+      lastError,
     });
 
-    return jsonOk({
-      connectionId: body.connectionId,
+    return NextResponse.json({
+      connectionId,
       businessId: channel.businessId,
-      whatsappStatus: body.status,
+      whatsappStatus: status,
       channelStatus: channel.status,
     });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

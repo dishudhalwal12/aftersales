@@ -1,38 +1,39 @@
-import { z } from "zod";
-
-import { ApiError, jsonOk, toErrorResponse } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
-import { getBaileysConnection, isBaileysConnectionMissing } from "@/lib/baileys";
-import { resolveOwnedWhatsappChannel } from "@/lib/whatsapp-access";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
+import {
+  getBaileysConnection,
+  isBaileysConnectionMissing,
+} from "../../../../../server/integrations/baileys.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { resolveOwnedWhatsappChannel } from "../../../../../server/integrations/whatsapp-access.ts";
 import {
   connectionResponse,
   readWhatsappConnectionId,
   saveWhatsappSnapshot,
-} from "@/lib/whatsapp";
+} from "../../../../../server/integrations/whatsapp.ts";
 
 export const dynamic = "force-dynamic";
-
-const querySchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-});
 
 // Polled by the dashboard while the QR is on screen and afterwards to learn
 // when the phone completed Linked Devices.
 export async function GET(request: Request) {
   try {
     const user = await requireUser();
-    const { searchParams } = new URL(request.url);
-    const { businessId } = querySchema.parse({
-      businessId: searchParams.get("businessId") ?? undefined,
-    });
+    const businessId = new URL(request.url).searchParams.get("businessId")?.trim();
+    if (!businessId) {
+      throw new IntegrationError(400, "VALIDATION_ERROR", "businessId is required.");
+    }
 
     const { channel } = await resolveOwnedWhatsappChannel(user.id, businessId);
     const connectionId = readWhatsappConnectionId(channel.configJson);
     if (!connectionId) {
-      throw new ApiError(
+      throw new IntegrationError(
         404,
         "WHATSAPP_NOT_CONNECTED",
-        "Connect WhatsApp before requesting a QR code."
+        "Connect WhatsApp before requesting a QR code.",
       );
     }
 
@@ -41,18 +42,18 @@ export async function GET(request: Request) {
       snapshot = await getBaileysConnection(connectionId);
     } catch (error) {
       if (isBaileysConnectionMissing(error)) {
-        throw new ApiError(
+        throw new IntegrationError(
           409,
           "WHATSAPP_RECONNECT_REQUIRED",
-          "The local WhatsApp service is not tracking this connection. Connect WhatsApp again."
+          "The local WhatsApp service is not tracking this connection. Connect WhatsApp again.",
         );
       }
       throw error;
     }
 
     const updated = await saveWhatsappSnapshot(channel, snapshot);
-    return jsonOk(connectionResponse(updated, snapshot));
+    return NextResponse.json(connectionResponse(updated, snapshot));
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

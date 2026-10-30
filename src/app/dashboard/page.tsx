@@ -3,6 +3,7 @@ import { prisma } from "../../server/db.ts";
 import { getCurrentUser } from "../../server/auth/session.ts";
 import { resolveProvider } from "../../server/ai/orchestrator.ts";
 import { sarvamStatus } from "../../server/voice/sarvam.ts";
+import { isBaileysConfigured } from "../../server/integrations/baileys.ts";
 import { signOutAction } from "../auth/actions.ts";
 import { DashboardShell, type TabKey } from "../../components/dashboard/DashboardShell.tsx";
 import { LiveQueuePanel } from "../../components/dashboard/LiveQueuePanel.tsx";
@@ -100,6 +101,7 @@ export default async function DashboardPage({
           businessId={activeBusiness.businessId}
           sarvamConfigured={voice.configured}
           virtualNumber={voice.virtualNumber}
+          baileysConfigured={isBaileysConfigured()}
         />
       )}
     </DashboardShell>

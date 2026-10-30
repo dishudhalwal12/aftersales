@@ -15,10 +15,26 @@ interface CreatedBusiness {
 const BUSINESS_TYPES = ["SaaS", "E-Commerce", "Healthcare Clinic", "Restaurant", "Other"] as const;
 
 const CHANNELS = [
-  ["WhatsApp", "test mode", "Inbound webhook accepted; replies held until you flip it to connected."],
-  ["Instagram DM", "draft only", "Drafts only — Meta app scope is not granted on a fresh deployment."],
-  ["Gmail", "test mode", "Simulated mailbox until OAuth credentials are added."],
-  ["Sarvam voice", "test mode", "A session and PIN are real; the telephone leg needs Sarvam keys."],
+  [
+    "WhatsApp",
+    "connect after saving",
+    "Links a real WhatsApp Web device through the local Baileys service; scan the QR from Dashboard → Channels.",
+  ],
+  [
+    "Facebook Page & Instagram DM",
+    "connect after saving",
+    "Facebook Login authorizes one Page or linked Instagram account at a time from Dashboard → Channels.",
+  ],
+  [
+    "Gmail",
+    "connect after saving",
+    "OAuth connects the support mailbox so replies stay in the same ticket pipeline.",
+  ],
+  [
+    "Sarvam voice",
+    "test mode",
+    "A session and PIN are real; the telephone leg needs Sarvam keys.",
+  ],
 ] as const;
 
 const EMPTY: BusinessFacts = {
@@ -299,7 +315,8 @@ export function OnboardingWizard({
             ))}
             <p className="tiny muted">
               Saving compiles business_brain.md, derives its citable chunks and takes you to the queue.
-              Nothing is claimed as connected that is not connected.
+              Real accounts are connected afterwards from Dashboard → Channels, so nothing is claimed
+              as connected that is not connected.
             </p>
           </div>
         )}

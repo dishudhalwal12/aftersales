@@ -1,520 +1,460 @@
-import type { ChannelConnection } from "@prisma/client";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { strict as assert } from "node:assert";
+import { randomBytes } from "node:crypto";
+import { after, before, describe, it } from "node:test";
 
-import { ApiError } from "@/lib/api";
-import { prisma } from "@/lib/db";
+import type { InboundContact } from "../src/server/business/service.ts";
 import {
   GMAIL_SCOPES,
   buildGmailAuthorizationUrl,
   buildGmailRawMessage,
-  completeEmailConnection,
-  disconnectEmail,
-  exchangeGmailCode,
-  getEmailStatus,
   getValidGmailAccessToken,
-  pollGmailChannel,
+  isEmailProviderSupported,
+  parseEmailAddress,
+  processGmailMessage,
   readEmailConnection,
-  sendGmailMessage,
-  type EmailFetch,
-} from "@/lib/email";
-import { decryptSecret, encryptSecret } from "@/lib/integration-crypto";
-import type { generateTriageResponse } from "@/lib/llm-orchestrator";
-import type { LLMResponse } from "@/lib/routing-engine";
+  readEmailProviderSettings,
+  readGmailHeader,
+  sanitizeHeaderValue,
+  type GmailMessagePayload,
+} from "../src/server/integrations/email.ts";
+import { encryptSecret } from "../src/server/integrations/crypto.ts";
+import { IntegrationError } from "../src/server/integrations/errors.ts";
+import {
+  base64Url,
+  business,
+  channel,
+  fetchStub,
+  jsonResponse,
+  requestJson,
+  respondResult,
+} from "./integrations-helpers.ts";
 
-import { createTestBusiness, resetBusinessData } from "./helpers";
+const ENV_KEYS = [
+  "INTEGRATION_ENCRYPTION_KEY",
+  "INTEGRATION_STATE_SECRET",
+  "EMAIL_PROVIDER",
+  "EMAIL_GMAIL_CLIENT_ID",
+  "EMAIL_GMAIL_CLIENT_SECRET",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+] as const;
+const saved = new Map<string, string | undefined>();
 
-const EMAIL_BIZ = "test_email_biz";
-const EMAIL_OWNER_EMAIL = "email-owner@sphinx.demo";
-const CHUNK_ID = "chk_email_pricing";
-const SUPPORT_ADDRESS = "support@business.test";
-const ACCESS_TOKEN = "access-token-1";
-const REFRESH_TOKEN = "refresh-token-1";
-
-type LLMFn = typeof generateTriageResponse;
-
-function groundedLlm(): { llm: LLMFn; calls: () => number } {
-  let calls = 0;
-  const llm: LLMFn = async () => {
-    calls += 1;
-    const result: LLMResponse = {
-      specialist: "sales",
-      intent: "pricing_inquiry",
-      sentiment: "neutral",
-      urgency_score: 20,
-      confidence_score: 92,
-      explicit_human_request: false,
-      requires_human_judgment: false,
-      cited_chunk_ids: [CHUNK_ID],
-      reply_text: "The Pro Plan costs ₹1,499 per month.",
-    };
-    return result;
+function integrationError(reason: string) {
+  return (error: unknown): boolean => {
+    assert.ok(error instanceof IntegrationError, `expected IntegrationError, got ${String(error)}`);
+    assert.equal(error.reason, reason);
+    return true;
   };
-  return { llm, calls: () => calls };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-type Captured = { url: string; init?: RequestInit };
-
-function recorder(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): {
-  fetchImpl: EmailFetch;
-  calls: Captured[];
-} {
-  const calls: Captured[] = [];
+function storedEmailConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    calls,
-    fetchImpl: async (url, init) => {
-      calls.push({ url, init });
-      return handler(url, init);
+    email: {
+      provider: "gmail",
+      emailAddress: "support@cloudpulse.example",
+      accountId: "account_1",
+      refreshToken: encryptSecret("refresh-token"),
+      accessToken: encryptSecret("access-token"),
+      accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      scopes: [...GMAIL_SCOPES],
+      connectedAt: "2026-01-01T00:00:00.000Z",
+      previousStatus: "TEST_MODE",
+      previousAutoSend: false,
+      ...overrides,
     },
   };
 }
 
-function storedEmail(overrides: Record<string, unknown> = {}) {
+function gmailMessage(overrides: Partial<GmailMessagePayload> = {}): GmailMessagePayload {
   return {
-    provider: "gmail",
-    emailAddress: SUPPORT_ADDRESS,
-    accountId: SUPPORT_ADDRESS,
-    refreshToken: encryptSecret(REFRESH_TOKEN),
-    accessToken: encryptSecret(ACCESS_TOKEN),
-    accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-    scopes: [...GMAIL_SCOPES],
-    connectedAt: new Date().toISOString(),
-    previousStatus: "DRAFT_ONLY",
-    previousAutoSend: false,
+    id: "msg_1",
+    threadId: "thread_1",
+    labelIds: ["UNREAD", "INBOX"],
+    snippet: "",
+    payload: {
+      mimeType: "text/plain",
+      headers: [
+        { name: "From", value: "Priya Sharma <Priya@Example.com>" },
+        { name: "Subject", value: "Refund" },
+        { name: "Message-ID", value: "<abc@mail.example.com>" },
+        { name: "References", value: "<parent@mail.example.com>" },
+      ],
+      body: { data: base64Url("Can I still get a refund?") },
+    },
     ...overrides,
   };
 }
 
-async function seedGmailChannel(options: {
-  status?: string;
-  autoSend?: boolean;
-  email?: Record<string, unknown> | null;
-  extraConfig?: Record<string, unknown>;
-} = {}): Promise<ChannelConnection> {
-  await prisma.channelConnection.deleteMany({
-    where: { businessId: EMAIL_BIZ, channelType: "GMAIL" },
-  });
-  const config = {
-    email: options.email === null ? null : storedEmail(options.email ?? {}),
-    ...(options.extraConfig ?? {}),
-  };
-  return prisma.channelConnection.create({
-    data: {
-      businessId: EMAIL_BIZ,
-      channelType: "GMAIL",
-      status: options.status ?? "CONNECTED",
-      autoSend: options.autoSend ?? true,
-      configJson: JSON.stringify(config),
-    },
+function healthyGmailFetch(sendStatus = 200) {
+  return fetchStub((url) => {
+    if (url.endsWith("/messages/send")) {
+      return sendStatus === 200
+        ? jsonResponse({ id: "sent_1", threadId: "thread_1" })
+        : jsonResponse({ error: { message: "upstream failed" } }, sendStatus);
+    }
+    if (url.includes("/modify")) return jsonResponse({ id: "msg_1" });
+    throw new Error(`unexpected fetch: ${url}`);
   });
 }
 
-function gmailMessage(input: {
-  id: string;
-  threadId?: string;
-  from: string;
-  subject: string;
-  text: string;
-  messageId?: string;
-}) {
-  return {
-    id: input.id,
-    threadId: input.threadId ?? `thread_${input.id}`,
-    labelIds: ["UNREAD", "INBOX"],
-    snippet: input.text.slice(0, 80),
-    payload: {
-      mimeType: "multipart/alternative",
-      headers: [
-        { name: "From", value: input.from },
-        { name: "To", value: SUPPORT_ADDRESS },
-        { name: "Subject", value: input.subject },
-        { name: "Message-ID", value: input.messageId ?? `<${input.id}@mail.example.com>` },
-        { name: "References", value: "<root@mail.example.com>" },
-      ],
-      parts: [
-        {
-          mimeType: "text/plain",
-          body: { data: Buffer.from(input.text, "utf8").toString("base64url") },
-        },
-      ],
-    },
-  };
-}
+before(() => {
+  for (const key of ENV_KEYS) saved.set(key, process.env[key]);
+  process.env.INTEGRATION_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+  process.env.INTEGRATION_STATE_SECRET = "state-secret-for-tests";
+});
 
-beforeAll(async () => {
-  await resetBusinessData([EMAIL_BIZ]);
-  await createTestBusiness({
-    id: EMAIL_BIZ,
-    ownerEmail: EMAIL_OWNER_EMAIL,
-    name: "Email Test Business",
+after(() => {
+  for (const key of ENV_KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+describe("Gmail provider settings", () => {
+  it("only implements Gmail instead of pretending other providers exist", () => {
+    assert.equal(isEmailProviderSupported("gmail"), true);
+    assert.equal(isEmailProviderSupported("outlook"), false);
+    assert.equal(isEmailProviderSupported("sendgrid"), false);
   });
-  await prisma.knowledgeChunk.create({
-    data: {
-      id: CHUNK_ID,
-      businessId: EMAIL_BIZ,
-      chunkIndex: 0,
-      section: "Pricing",
-      content: "The Pro Plan costs ₹1,499 per month.",
-      keywords: "pro plan pricing",
-    },
+
+  it("reports unconfigured when the OAuth client is missing", () => {
+    delete process.env.EMAIL_PROVIDER;
+    delete process.env.EMAIL_GMAIL_CLIENT_ID;
+    delete process.env.EMAIL_GMAIL_CLIENT_SECRET;
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+
+    const settings = readEmailProviderSettings();
+    assert.equal(settings.provider, "gmail");
+    assert.equal(settings.configured, false);
+  });
+
+  it("falls back to the shared Google OAuth client", () => {
+    delete process.env.EMAIL_GMAIL_CLIENT_ID;
+    delete process.env.EMAIL_GMAIL_CLIENT_SECRET;
+    process.env.GOOGLE_CLIENT_ID = "google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "google-client-secret";
+
+    const settings = readEmailProviderSettings();
+    assert.equal(settings.clientId, "google-client-id");
+    assert.equal(settings.clientSecret, "google-client-secret");
+    assert.equal(settings.configured, true);
+  });
+
+  it("does not claim to be configured for an unsupported provider", () => {
+    process.env.EMAIL_PROVIDER = "outlook";
+    process.env.GOOGLE_CLIENT_ID = "google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "google-client-secret";
+
+    const settings = readEmailProviderSettings();
+    assert.equal(settings.provider, "outlook");
+    assert.equal(settings.configured, false);
   });
 });
 
-beforeEach(async () => {
-  await prisma.ticketEvent.deleteMany({ where: { ticket: { businessId: EMAIL_BIZ } } });
-  await prisma.ticket.deleteMany({ where: { businessId: EMAIL_BIZ } });
-  await prisma.channelConnection.deleteMany({ where: { businessId: EMAIL_BIZ } });
-});
+describe("Gmail authorization URL", () => {
+  before(() => {
+    delete process.env.EMAIL_PROVIDER;
+    process.env.EMAIL_GMAIL_CLIENT_ID = "client-id.apps.googleusercontent.com";
+    process.env.EMAIL_GMAIL_CLIENT_SECRET = "client-secret";
+  });
 
-afterAll(async () => {
-  await resetBusinessData([EMAIL_BIZ]);
-});
-
-describe("Gmail OAuth", () => {
-  it("builds an offline consent URL with only the Gmail modify scope", () => {
+  it("requests offline access with consent so a refresh token is issued", () => {
     const url = new URL(
       buildGmailAuthorizationUrl({
-        redirectUri: "https://backend.test/api/social/email/callback",
+        redirectUri: "https://example.com/api/social/email/callback",
         state: "signed-state",
-      })
+      }),
     );
-    expect(url.origin).toBe("https://accounts.google.com");
-    expect(url.searchParams.get("client_id")).toBe("test-gmail-client-id");
-    expect(url.searchParams.get("state")).toBe("signed-state");
-    expect(url.searchParams.get("access_type")).toBe("offline");
-    expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")).toBe(GMAIL_SCOPES.join(" "));
-  });
 
-  it("exchanges an authorization code and surfaces provider failures", async () => {
-    const ok = recorder(() =>
-      jsonResponse({
-        access_token: "short-token",
-        refresh_token: "refresh-token",
-        expires_in: 3599,
-        scope: GMAIL_SCOPES.join(" "),
-      })
-    );
-    const tokens = await exchangeGmailCode({
-      code: "code-1",
-      redirectUri: "https://backend.test/api/social/email/callback",
-      fetchImpl: ok.fetchImpl,
-    });
-    expect(tokens.accessToken).toBe("short-token");
-    expect(tokens.refreshToken).toBe("refresh-token");
-    expect(tokens.expiresInSeconds).toBe(3599);
-
-    const fail = recorder(() => jsonResponse({ error: "invalid_grant" }, 400));
-    await expect(
-      exchangeGmailCode({
-        code: "bad",
-        redirectUri: "https://backend.test/callback",
-        fetchImpl: fail.fetchImpl,
-      })
-    ).rejects.toMatchObject({ code: "EMAIL_OAUTH_FAILED" });
-  });
-
-  it("stores encrypted tokens and marks the channel connected after the backend confirms access", async () => {
-    const { fetchImpl } = recorder((url) => {
-      if (url.includes("oauth2.googleapis.com/token")) {
-        return jsonResponse({
-          access_token: "new-access",
-          refresh_token: "new-refresh",
-          expires_in: 3600,
-          scope: GMAIL_SCOPES.join(" "),
-        });
-      }
-      if (url.includes("/users/me/profile")) {
-        return jsonResponse({ emailAddress: SUPPORT_ADDRESS, messagesTotal: 12 });
-      }
-      return jsonResponse({}, 404);
-    });
-
-    const result = await completeEmailConnection({
-      businessId: EMAIL_BIZ,
-      userId: (await prisma.business.findUniqueOrThrow({ where: { id: EMAIL_BIZ } })).ownerId,
-      code: "code-1",
-      redirectUri: "https://backend.test/api/social/email/callback",
-      fetchImpl,
-    });
-
-    expect(result.emailAddress).toBe(SUPPORT_ADDRESS);
-    expect(result.channel.status).toBe("CONNECTED");
-    expect(result.channel.autoSend).toBe(true);
-
-    const stored = readEmailConnection(result.channel.configJson);
-    expect(stored?.refreshToken.startsWith("v1.")).toBe(true);
-    expect(stored?.refreshToken).not.toContain("new-refresh");
-    expect(decryptSecret(stored!.refreshToken)).toBe("new-refresh");
-
-    const status = await getEmailStatus(EMAIL_BIZ);
-    expect(status).toMatchObject({
-      connected: true,
-      status: "connected",
-      emailAddress: SUPPORT_ADDRESS,
-      autoSend: true,
-      lastError: null,
-    });
-    expect(JSON.stringify(status)).not.toContain("new-refresh");
-    expect(JSON.stringify(status)).not.toContain("new-access");
-  });
-
-  it("rejects a callback for a business the state user does not own", async () => {
-    await expect(
-      completeEmailConnection({
-        businessId: EMAIL_BIZ,
-        userId: "user_who_does_not_own_it",
-        code: "code",
-        redirectUri: "https://backend.test/callback",
-      })
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    assert.equal(url.origin, "https://accounts.google.com");
+    assert.equal(url.searchParams.get("client_id"), "client-id.apps.googleusercontent.com");
+    assert.equal(url.searchParams.get("redirect_uri"), "https://example.com/api/social/email/callback");
+    assert.equal(url.searchParams.get("state"), "signed-state");
+    assert.equal(url.searchParams.get("response_type"), "code");
+    assert.equal(url.searchParams.get("access_type"), "offline");
+    assert.equal(url.searchParams.get("prompt"), "consent");
+    assert.deepEqual(url.searchParams.get("scope")?.split(" "), [...GMAIL_SCOPES]);
   });
 });
 
-describe("Gmail tokens", () => {
-  it("refreshes an expired access token and reuses the cached one", async () => {
-    const channel = await seedGmailChannel({
-      email: { accessToken: null, accessTokenExpiresAt: null },
-    });
-    const { fetchImpl, calls } = recorder(() =>
-      jsonResponse({ access_token: "refreshed-token", expires_in: 3600 })
+describe("stored email connection validation", () => {
+  it("returns null for a missing or malformed credential", () => {
+    assert.equal(readEmailConnection(null), null);
+    assert.equal(readEmailConnection("not json"), null);
+    assert.equal(readEmailConnection(JSON.stringify({ email: { provider: "gmail" } })), null);
+    assert.equal(
+      readEmailConnection(
+        JSON.stringify({ email: { provider: "outlook", emailAddress: "a@b.c", refreshToken: "x" } }),
+      ),
+      null,
     );
-
-    const first = await getValidGmailAccessToken(channel, fetchImpl);
-    expect(first.accessToken).toBe("refreshed-token");
-    expect(calls).toHaveLength(1);
-
-    const second = await getValidGmailAccessToken(first.channel, fetchImpl);
-    expect(second.accessToken).toBe("refreshed-token");
-    expect(calls).toHaveLength(1);
-
-    const reloaded = await prisma.channelConnection.findUniqueOrThrow({
-      where: { businessId_channelType: { businessId: EMAIL_BIZ, channelType: "GMAIL" } },
-    });
-    const stored = readEmailConnection(reloaded.configJson);
-    expect(decryptSecret(stored!.accessToken!)).toBe("refreshed-token");
   });
 
-  it("clears credentials and restores the previous status when refresh is revoked", async () => {
-    const channel = await seedGmailChannel({
-      email: { accessToken: null, accessTokenExpiresAt: null },
-    });
-    const { fetchImpl } = recorder(() => jsonResponse({ error: "invalid_grant" }, 400));
-
-    await expect(getValidGmailAccessToken(channel, fetchImpl)).rejects.toMatchObject({
-      code: "EMAIL_RECONNECT_REQUIRED",
-    });
-
-    const reloaded = await prisma.channelConnection.findUniqueOrThrow({
-      where: { businessId_channelType: { businessId: EMAIL_BIZ, channelType: "GMAIL" } },
-    });
-    expect(reloaded.status).toBe("DRAFT_ONLY");
-    expect(reloaded.autoSend).toBe(false);
-    expect(readEmailConnection(reloaded.configJson)).toBeNull();
-    expect(reloaded.configJson).toContain("emailLastError");
-    expect(reloaded.configJson).not.toContain("v1.");
+  it("reads the provider fields without decrypting them", () => {
+    const connection = readEmailConnection(JSON.stringify(storedEmailConfig()));
+    assert.ok(connection);
+    assert.equal(connection.emailAddress, "support@cloudpulse.example");
+    assert.deepEqual(connection.scopes, [...GMAIL_SCOPES]);
+    assert.equal(connection.refreshToken.startsWith("v1."), true);
   });
 });
 
-describe("Gmail sending", () => {
-  it("builds MIME with thread headers and sends through the Gmail API", async () => {
-    const channel = await seedGmailChannel();
-    const { fetchImpl, calls } = recorder(() =>
-      jsonResponse({ id: "sent_1", threadId: "thread_1" })
-    );
-
-    const result = await sendGmailMessage(
-      channel,
-      {
-        to: "customer@example.com",
-        subject: "Re: Pricing",
-        text: "The Pro Plan costs ₹1,499 per month.",
-        threadId: "thread_1",
-        inReplyTo: "<inbound@mail.example.com>",
-        references: "<root@mail.example.com> <inbound@mail.example.com>",
-      },
-      fetchImpl
-    );
-
-    expect(result).toMatchObject({ messageId: "sent_1", threadId: "thread_1" });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toContain("/users/me/messages/send");
-
-    const body = JSON.parse(String(calls[0].init?.body)) as { raw: string; threadId: string };
-    expect(body.threadId).toBe("thread_1");
-    const mime = Buffer.from(body.raw, "base64url").toString("utf8");
-    expect(mime).toContain(`From: ${SUPPORT_ADDRESS}`);
-    expect(mime).toContain("To: customer@example.com");
-    expect(mime).toContain("In-Reply-To: <inbound@mail.example.com>");
-    expect(mime).toContain("References: <root@mail.example.com> <inbound@mail.example.com>");
+describe("outbound MIME construction", () => {
+  it("strips CRLF so a header value cannot inject a new header", () => {
+    assert.equal(sanitizeHeaderValue("Hello\r\nBcc: attacker@example.com"), "Hello Bcc: attacker@example.com");
+    assert.equal(sanitizeHeaderValue("  padded\n"), "padded");
   });
 
-  it("strips CRLF from header values so a subject cannot inject headers", () => {
+  it("builds RFC 5322 headers and base64 body", () => {
     const raw = buildGmailRawMessage({
-      from: SUPPORT_ADDRESS,
-      to: "customer@example.com",
+      from: "support@cloudpulse.example",
+      to: "priya@example.com",
+      subject: "Re: Refund",
+      text: "Yes — within 7 days.",
+      inReplyTo: "<abc@mail.example.com>",
+      references: "<parent@mail.example.com> <abc@mail.example.com>",
+    });
+
+    const mime = Buffer.from(raw, "base64url").toString("utf8");
+    assert.match(mime, /^From: support@cloudpulse\.example\r\n/);
+    assert.match(mime, /\r\nTo: priya@example\.com\r\n/);
+    assert.match(mime, /\r\nSubject: Re: Refund\r\n/);
+    assert.match(mime, /\r\nIn-Reply-To: <abc@mail\.example\.com>\r\n/);
+    assert.match(mime, /\r\nReferences: <parent@mail\.example\.com> <abc@mail\.example\.com>\r\n/);
+    assert.match(mime, /Content-Transfer-Encoding: base64/);
+
+    const body = mime.split("\r\n\r\n")[1] ?? "";
+    assert.equal(Buffer.from(body.replace(/\r\n/g, ""), "base64").toString("utf8"), "Yes — within 7 days.");
+  });
+
+  it("neutralises CRLF inside the subject", () => {
+    const raw = buildGmailRawMessage({
+      from: "support@cloudpulse.example",
+      to: "priya@example.com",
       subject: "Hello\r\nBcc: attacker@example.com",
-      text: "Body",
+      text: "hi",
     });
     const mime = Buffer.from(raw, "base64url").toString("utf8");
-    expect(mime).not.toContain("\r\nBcc:");
-    expect(mime).toContain("Subject: Hello Bcc: attacker@example.com");
+    assert.equal(mime.includes("\r\nBcc:"), false);
+    assert.match(mime, /\r\nSubject: Hello Bcc: attacker@example\.com\r\n/);
   });
 });
 
-describe("Gmail polling", () => {
-  it("processes unread mail, replies in-thread, skips self-mail, and deduplicates", async () => {
-    const channel = await seedGmailChannel();
-    const { llm, calls: llmCalls } = groundedLlm();
-
-    const outbound: Array<{ url: string; body: unknown }> = [];
-    const { fetchImpl } = recorder((url, init) => {
-      if (url.includes("/messages?") && url.includes("is%3Aunread")) {
-        return jsonResponse({ messages: [{ id: "m1" }, { id: "m2" }] });
-      }
-      if (url.includes("/messages/m1?")) {
-        return jsonResponse(
-          gmailMessage({
-            id: "m1",
-            from: "Customer One <customer@example.com>",
-            subject: "Pricing question",
-            text: "How much does the Pro Plan cost?",
-          })
-        );
-      }
-      if (url.includes("/messages/m2?")) {
-        return jsonResponse(
-          gmailMessage({
-            id: "m2",
-            from: `Business <${SUPPORT_ADDRESS}>`,
-            subject: "Our own newsletter",
-            text: "This came from the business itself.",
-          })
-        );
-      }
-      if (url.includes("/messages/send")) {
-        outbound.push({ url, body: JSON.parse(String(init?.body)) });
-        return jsonResponse({ id: "sent_1", threadId: "thread_m1" });
-      }
-      if (url.includes("/messages/m1/modify")) {
-        return jsonResponse({ id: "m1" });
-      }
-      return jsonResponse({}, 404);
+describe("inbound parsing helpers", () => {
+  it("parses a display name and normalises the address", () => {
+    assert.deepEqual(parseEmailAddress('Priya Sharma <Priya@Example.com>'), {
+      email: "priya@example.com",
+      name: "Priya Sharma",
     });
-
-    const first = await pollGmailChannel(channel, { fetch: fetchImpl, llm });
-    expect(first).toMatchObject({
-      scanned: 2,
-      processed: 1,
-      duplicates: 0,
-      skipped: 1,
-      repliesSent: 1,
-    });
-    expect(llmCalls()).toBe(1);
-    expect(outbound).toHaveLength(1);
-
-    const mime = Buffer.from((outbound[0].body as { raw: string }).raw, "base64url").toString("utf8");
-    expect(mime).toContain("To: customer@example.com");
-    expect(mime).toContain("In-Reply-To: <m1@mail.example.com>");
-    expect((outbound[0].body as { threadId?: string }).threadId).toBe("thread_m1");
-
-    const ticket = await prisma.ticket.findUniqueOrThrow({
-      where: { externalMessageId: "gmail:m1" },
-    });
-    expect(ticket.businessId).toBe(EMAIL_BIZ);
-    expect(ticket.channel).toBe("GMAIL");
-    expect(ticket.customerHandle).toBe("customer@example.com");
-    expect(ticket.aiDraftOrReply).toContain("₹1,499");
-
-    const second = await pollGmailChannel(channel, { fetch: fetchImpl, llm });
-    expect(second.duplicates).toBe(1);
-    expect(second.repliesSent).toBe(0);
-    expect(llmCalls()).toBe(1);
-    expect(outbound).toHaveLength(1);
+    assert.deepEqual(parseEmailAddress("PRIYA@EXAMPLE.COM"), { email: "priya@example.com", name: "" });
   });
 
-  it("does not auto-send when the existing routing decision withholds a reply", async () => {
-    const channel = await seedGmailChannel({ autoSend: false });
-    const { fetchImpl } = recorder((url) => {
-      if (url.includes("/messages?") && url.includes("is%3Aunread")) {
-        return jsonResponse({ messages: [{ id: "m3" }] });
-      }
-      if (url.includes("/messages/m3?")) {
-        return jsonResponse(
-          gmailMessage({
-            id: "m3",
-            from: "Customer Three <customer3@example.com>",
-            subject: "Question",
-            text: "Can someone call me?",
-          })
-        );
-      }
-      return jsonResponse({});
-    });
-
-    const { llm } = groundedLlm();
-    const summary = await pollGmailChannel(channel, { fetch: fetchImpl, llm });
-    expect(summary.processed).toBe(1);
-    expect(summary.repliesSent).toBe(0);
-
-    const ticket = await prisma.ticket.findUniqueOrThrow({
-      where: { externalMessageId: "gmail:m3" },
-    });
-    expect(ticket.actionStatus).not.toBe("answered");
+  it("matches Gmail headers case-insensitively", () => {
+    const headers = [{ name: "Message-ID", value: " <abc@x> " }];
+    assert.equal(readGmailHeader(headers, "message-id"), "<abc@x>");
+    assert.equal(readGmailHeader(headers, "references"), "");
+    assert.equal(readGmailHeader(undefined, "from"), "");
   });
 });
 
-describe("email status and disconnect", () => {
-  it("reports an error status recorded by a failed connection", async () => {
-    await seedGmailChannel({
-      status: "DRAFT_ONLY",
-      autoSend: false,
-      email: null,
-      extraConfig: { emailLastError: "Google denied access." },
-    });
-
-    const status = await getEmailStatus(EMAIL_BIZ);
-    expect(status).toMatchObject({
-      connected: false,
-      status: "error",
-      emailAddress: null,
-      lastError: "Google denied access.",
-    });
+describe("access-token lifecycle", () => {
+  before(() => {
+    delete process.env.EMAIL_PROVIDER;
+    process.env.EMAIL_GMAIL_CLIENT_ID = "client-id.apps.googleusercontent.com";
+    process.env.EMAIL_GMAIL_CLIENT_SECRET = "client-secret";
   });
 
-  it("revokes the token, clears credentials, and restores the previous channel mode", async () => {
-    await seedGmailChannel();
-    const { fetchImpl, calls } = recorder(() => new Response("", { status: 200 }));
-
-    const channel = await disconnectEmail(EMAIL_BIZ, fetchImpl);
-    expect(channel.status).toBe("DRAFT_ONLY");
-    expect(channel.autoSend).toBe(false);
-    expect(readEmailConnection(channel.configJson)).toBeNull();
-    expect(channel.configJson).not.toContain("v1.");
-    expect(calls[0].url).toContain("oauth2.googleapis.com/revoke");
-
-    await expect(disconnectEmail(EMAIL_BIZ, fetchImpl)).rejects.toMatchObject({
-      code: "EMAIL_NOT_CONNECTED",
+  it("reuses a cached token that is comfortably before expiry", async () => {
+    const { impl, calls } = fetchStub(() => {
+      throw new Error("no network call should happen for a valid cached token");
     });
+
+    const result = await getValidGmailAccessToken(channel(storedEmailConfig()), impl);
+    assert.equal(result.accessToken, "access-token");
+    assert.equal(calls.length, 0);
   });
 
-  it("refuses to send or poll when the channel is not connected", async () => {
-    const channel = await seedGmailChannel({ status: "DRAFT_ONLY", autoSend: false });
-    await expect(
-      sendGmailMessage(channel, {
-        to: "customer@example.com",
-        subject: "Hello",
-        text: "Body",
-      })
-    ).rejects.toMatchObject({ code: "EMAIL_NOT_CONNECTED" });
+  it("refreshes an expired token with the stored refresh token", async () => {
+    const expired = channel(
+      storedEmailConfig({ accessTokenExpiresAt: new Date(Date.now() - 60_000).toISOString() }),
+    );
+    const { impl, calls } = fetchStub(() =>
+      jsonResponse({ error: "server_error", error_description: "temporarily unavailable" }, 500),
+    );
 
-    const summary = await pollGmailChannel(channel, { fetch: vi.fn() as unknown as EmailFetch });
-    expect(summary.errors).toContain("EMAIL_NOT_CONNECTED");
+    await assert.rejects(
+      () => getValidGmailAccessToken(expired, impl),
+      integrationError("EMAIL_TOKEN_REFRESH_FAILED"),
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, "https://oauth2.googleapis.com/token");
+    const body = new URLSearchParams(String(calls[0]?.init?.body));
+    assert.equal(body.get("grant_type"), "refresh_token");
+    assert.equal(body.get("refresh_token"), "refresh-token");
+    assert.equal(body.get("client_id"), "client-id.apps.googleusercontent.com");
+  });
+
+  it("refuses to use a channel that is not connected", async () => {
+    const { impl } = fetchStub(() => jsonResponse({}));
+    await assert.rejects(
+      () => getValidGmailAccessToken(channel(storedEmailConfig(), { status: "TEST_MODE" }), impl),
+      integrationError("EMAIL_NOT_CONNECTED"),
+    );
+  });
+});
+
+describe("inbound email processing", () => {
+  it("rejects a channel with no stored email credential", async () => {
+    await assert.rejects(
+      () => processGmailMessage(channel({}), business(), gmailMessage()),
+      integrationError("EMAIL_NOT_CONNECTED"),
+    );
+  });
+
+  it("ignores mail the business sent to itself", async () => {
+    const contacts: InboundContact[] = [];
+    const message = gmailMessage({
+      payload: {
+        mimeType: "text/plain",
+        headers: [
+          { name: "From", value: "Support <SUPPORT@cloudpulse.example>" },
+          { name: "Subject", value: "Own note" },
+        ],
+        body: { data: base64Url("internal note") },
+      },
+    });
+
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), message, {
+      fetch: healthyGmailFetch().impl,
+      respond: async (contact) => {
+        contacts.push(contact);
+        return respondResult();
+      },
+    });
+
+    assert.equal(outcome.skipped, "self_authored");
+    assert.equal(contacts.length, 0);
+  });
+
+  it("ignores messages already marked SENT", async () => {
+    const outcome = await processGmailMessage(
+      channel(storedEmailConfig()),
+      business(),
+      gmailMessage({ labelIds: ["SENT"] }),
+      { fetch: healthyGmailFetch().impl, respond: async () => respondResult() },
+    );
+
+    assert.equal(outcome.skipped, "self_authored");
+  });
+
+  it("ignores an empty message body instead of creating a ticket", async () => {
+    const message = gmailMessage({
+      payload: {
+        mimeType: "text/plain",
+        headers: [{ name: "From", value: "priya@example.com" }],
+        body: { data: base64Url("   ") },
+      },
+    });
+
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), message, {
+      fetch: healthyGmailFetch().impl,
+      respond: async () => respondResult(),
+    });
+
+    assert.equal(outcome.skipped, "empty_body");
+  });
+
+  it("hands a real message to the shared pipeline and auto-replies in-thread", async () => {
+    const contacts: InboundContact[] = [];
+    const fetch = healthyGmailFetch();
+
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), gmailMessage(), {
+      fetch: fetch.impl,
+      respond: async (contact) => {
+        contacts.push(contact);
+        return respondResult();
+      },
+    });
+
+    assert.equal(outcome.duplicate, false);
+    assert.equal(outcome.replySent, true);
+    assert.equal(outcome.replyError, null);
+    assert.equal(outcome.ticketId, "ticket_1");
+
+    const contact = contacts[0];
+    assert.ok(contact);
+    assert.equal(contact.channel, "GMAIL");
+    assert.equal(contact.externalMessageId, "gmail:msg_1");
+    assert.equal(contact.customerHandle, "priya@example.com");
+    assert.equal(contact.customerName, "Priya Sharma");
+    assert.equal(contact.query, "Can I still get a refund?");
+
+    const sendCall = fetch.calls.find((call) => call.url.endsWith("/messages/send"));
+    assert.ok(sendCall);
+    const payload = requestJson(sendCall) as { raw: string; threadId?: string };
+    assert.equal(payload.threadId, "thread_1");
+    const mime = Buffer.from(payload.raw, "base64url").toString("utf8");
+    assert.match(mime, /\r\nTo: priya@example\.com\r\n/);
+    assert.match(mime, /\r\nSubject: Re: Refund\r\n/);
+    assert.match(mime, /\r\nIn-Reply-To: <abc@mail\.example\.com>\r\n/);
+
+    const auth = (sendCall.init?.headers as Record<string, string> | undefined)?.["authorization"];
+    assert.equal(auth, "Bearer access-token");
+
+    const readCall = fetch.calls.find((call) => call.url.includes("/modify"));
+    assert.ok(readCall);
+    assert.deepEqual(requestJson(readCall), { removeLabelIds: ["UNREAD"] });
+  });
+
+  it("does not send a second reply for a duplicate delivery", async () => {
+    const fetch = healthyGmailFetch();
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), gmailMessage(), {
+      fetch: fetch.impl,
+      respond: async () => respondResult({ duplicate: true, ticketId: "ticket_existing" }),
+    });
+
+    assert.equal(outcome.duplicate, true);
+    assert.equal(outcome.ticketId, "ticket_existing");
+    assert.equal(outcome.replySent, false);
+    assert.equal(fetch.calls.some((call) => call.url.endsWith("/messages/send")), false);
+    assert.equal(fetch.calls.some((call) => call.url.includes("/modify")), true);
+  });
+
+  it("holds the reply when routing says draft-only", async () => {
+    const fetch = healthyGmailFetch();
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), gmailMessage(), {
+      fetch: fetch.impl,
+      respond: async () => respondResult({ shouldAutoSend: false, actionStatus: "draft", routingRuleHit: "R5" }),
+    });
+
+    assert.equal(outcome.replySent, false);
+    assert.equal(fetch.calls.some((call) => call.url.endsWith("/messages/send")), false);
+  });
+
+  it("keeps an empty answer from being sent", async () => {
+    const fetch = healthyGmailFetch();
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), gmailMessage(), {
+      fetch: fetch.impl,
+      respond: async () => respondResult({ answer: "   " }),
+    });
+
+    assert.equal(outcome.replySent, false);
+    assert.equal(fetch.calls.some((call) => call.url.endsWith("/messages/send")), false);
+  });
+
+  it("records a send failure without losing the ticket or the read receipt", async () => {
+    const fetch = healthyGmailFetch(500);
+    const outcome = await processGmailMessage(channel(storedEmailConfig()), business(), gmailMessage(), {
+      fetch: fetch.impl,
+      respond: async () => respondResult(),
+    });
+
+    assert.equal(outcome.replySent, false);
+    assert.equal(outcome.replyError, "EMAIL_SEND_FAILED");
+    assert.equal(fetch.calls.some((call) => call.url.includes("/modify")), true);
   });
 });

@@ -4,7 +4,7 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { ApiError } from "./api";
+import { IntegrationError } from "./errors.ts";
 
 export const BAILEYS_SECRET_HEADER = "x-baileys-secret";
 
@@ -43,6 +43,10 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TIMEOUT_MS = 60_000;
 const STATUS_SET = new Set<string>(BAILEYS_STATUSES);
 
+export function isBaileysStatus(value: unknown): value is BaileysConnectionStatus {
+  return typeof value === "string" && STATUS_SET.has(value);
+}
+
 function readServiceConfig(): ServiceConfig | null {
   const baseUrl = process.env.BAILEYS_SERVICE_URL?.trim().replace(/\/+$/, "");
   const secret = process.env.BAILEYS_SERVICE_SECRET?.trim();
@@ -66,7 +70,7 @@ export function isBaileysConfigured(): boolean {
 export function assertBaileysSecret(provided: string | null | undefined): void {
   const config = readServiceConfig();
   if (!config) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "BAILEYS_NOT_CONFIGURED",
       "The local WhatsApp service is not configured on this deployment."
@@ -74,26 +78,26 @@ export function assertBaileysSecret(provided: string | null | undefined): void {
   }
 
   if (!provided) {
-    throw new ApiError(401, "UNAUTHORIZED", "Missing WhatsApp service secret.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Missing WhatsApp service secret.");
   }
 
   const expected = createHash("sha256").update(config.secret, "utf8").digest();
   const actual = createHash("sha256").update(provided, "utf8").digest();
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    throw new ApiError(401, "UNAUTHORIZED", "Invalid WhatsApp service secret.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Invalid WhatsApp service secret.");
   }
 }
 
 export function isBaileysConnectionMissing(error: unknown): boolean {
   return (
-    error instanceof ApiError &&
+    error instanceof IntegrationError &&
     error.status === 404 &&
-    error.code === "CONNECTION_NOT_FOUND"
+    error.reason === "CONNECTION_NOT_FOUND"
   );
 }
 
-function invalidResponse(): ApiError {
-  return new ApiError(
+function invalidResponse(): IntegrationError {
+  return new IntegrationError(
     502,
     "BAILEYS_INVALID_RESPONSE",
     "The local WhatsApp service returned an unexpected response."
@@ -132,7 +136,7 @@ function parseSnapshot(data: unknown, fallbackConnectionId: string): BaileysConn
   return {
     connectionId:
       typeof record.connectionId === "string" ? record.connectionId : fallbackConnectionId,
-    businessId: typeof record.businessId === "string" ? record.businessId : undefined,
+    ...(typeof record.businessId === "string" ? { businessId: record.businessId } : {}),
     status: record.status as BaileysConnectionStatus,
     qr: toNullableString(record.qr),
     qrExpiresAt: toNullableString(record.qrExpiresAt),
@@ -149,7 +153,7 @@ async function requestService(
 ): Promise<unknown> {
   const config = readServiceConfig();
   if (!config) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "BAILEYS_NOT_CONFIGURED",
       "The local WhatsApp service is not configured on this deployment."
@@ -167,19 +171,18 @@ async function requestService(
         [BAILEYS_SECRET_HEADER]: config.secret,
         ...(init.body === undefined ? {} : { "content-type": "application/json" }),
       },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       signal: controller.signal,
       cache: "no-store",
     });
   } catch (error) {
     const aborted = error instanceof Error && error.name === "AbortError";
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "BAILEYS_UNAVAILABLE",
       aborted
         ? "The local WhatsApp service timed out."
         : "The local WhatsApp service is unreachable.",
-      { reason: aborted ? "TIMEOUT" : "NETWORK" }
     );
   } finally {
     clearTimeout(timer);
@@ -192,7 +195,7 @@ async function requestService(
     // 401/403 here means our stored secret is wrong, not that the browser
     // user is unauthenticated.
     if (response.status === 401 || response.status === 403) {
-      throw new ApiError(
+      throw new IntegrationError(
         502,
         "BAILEYS_AUTH_FAILED",
         "The local WhatsApp service rejected the backend credentials."
@@ -201,10 +204,10 @@ async function requestService(
 
     const serviceError = readServiceError(data);
     if (serviceError) {
-      throw new ApiError(response.status, serviceError.code, serviceError.message);
+      throw new IntegrationError(response.status, serviceError.code, serviceError.message);
     }
 
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "BAILEYS_UNAVAILABLE",
       `The local WhatsApp service answered with status ${response.status}.`

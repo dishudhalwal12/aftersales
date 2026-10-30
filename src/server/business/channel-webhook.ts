@@ -10,6 +10,7 @@ import type { TicketChannel } from "../../shared/domain.ts";
 
 const CHANNEL_FOR_PROVIDER: Readonly<Record<string, TicketChannel>> = {
   whatsapp: "WHATSAPP",
+  facebook: "FACEBOOK",
   instagram: "INSTAGRAM",
   gmail: "GMAIL",
 };

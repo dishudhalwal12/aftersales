@@ -35,12 +35,16 @@ const HOUR_MS = 60 * 60 * 1000;
 const CHANNELS: Record<string, Array<{ type: string; status: string; autoSend: boolean }>> = {
   [BUSINESS_A.id]: [
     { type: "WHATSAPP", status: "CONNECTED", autoSend: true },
+    { type: "FACEBOOK", status: "UNAVAILABLE", autoSend: false },
     { type: "INSTAGRAM", status: "TEST_MODE", autoSend: true },
-    { type: "GMAIL", status: "CONNECTED", autoSend: true },
+    // Gmail starts in test mode: "connected" is only claimed after a real
+    // OAuth round stores credentials (see /api/social/email/status).
+    { type: "GMAIL", status: "TEST_MODE", autoSend: true },
     { type: "SARVAM_VOICE", status: "TEST_MODE", autoSend: true },
   ],
   [BUSINESS_B.id]: [
     { type: "WHATSAPP", status: "CONNECTED", autoSend: true },
+    { type: "FACEBOOK", status: "UNAVAILABLE", autoSend: false },
     { type: "INSTAGRAM", status: "DRAFT_ONLY", autoSend: false },
     { type: "GMAIL", status: "TEST_MODE", autoSend: true },
     { type: "SARVAM_VOICE", status: "TEST_MODE", autoSend: true },

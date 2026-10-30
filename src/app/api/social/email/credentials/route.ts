@@ -1,17 +1,16 @@
-import { z } from "zod";
-
-import { ApiError, jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, requireUser } from "@/lib/auth";
-import { ensureChannelConnection } from "@/lib/channels";
-import { isEmailProviderSupported, readEmailProviderSettings } from "@/lib/email";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  loadOwnedBusiness,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
+import { ensureChannelConnection } from "../../../../../server/integrations/channels.ts";
+import { readEmailProviderSettings } from "../../../../../server/integrations/email.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
 
 export const dynamic = "force-dynamic";
-
-const credentialsSchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-  provider: z.string().trim().min(1).max(40).optional(),
-  credentials: z.record(z.string()).optional(),
-});
 
 // Reserved for API-key providers (SendGrid, Mailgun, ...). Gmail uses OAuth,
 // so it rejects this endpoint instead of accepting a mailbox password. No
@@ -19,27 +18,33 @@ const credentialsSchema = z.object({
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = credentialsSchema.parse(await parseJsonBody(request));
-    await assertBusinessOwnership(user.id, body.businessId);
-    await ensureChannelConnection(body.businessId, "GMAIL");
+    const body = await readJson(request);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    await loadOwnedBusiness(user.id, businessId);
+    await ensureChannelConnection(businessId, "GMAIL");
 
-    const provider = (body.provider ?? readEmailProviderSettings().provider).toLowerCase();
+    const requested = typeof body.provider === "string" ? body.provider.trim().toLowerCase() : "";
+    const provider = requested || readEmailProviderSettings().provider;
 
     if (provider === "gmail") {
-      throw new ApiError(
+      throw new IntegrationError(
         400,
         "EMAIL_OAUTH_REQUIRED",
-        "Gmail connects with OAuth. Use POST /api/social/email/connect instead."
+        "Gmail connects with OAuth. Use POST /api/social/email/connect instead.",
       );
     }
 
-    throw new ApiError(
-      400,
-      "EMAIL_PROVIDER_NOT_SUPPORTED",
-      "No API-key email provider is implemented in this deployment.",
-      { supported: ["gmail"] }
+    return NextResponse.json(
+      {
+        error: {
+          code: 400,
+          message: "No API-key email provider is implemented in this deployment.",
+          supported: ["gmail"],
+        },
+      },
+      { status: 400 },
     );
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

@@ -48,9 +48,9 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # 126 tests, native runner, no test dependencies
+npm test             # 224 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
-npm run build        # production build
+npm run build        # production build (see "Known limits" for the Windows prerender issue)
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
 npm run verify:phase3 # boots the app and asserts the Phase 3 channel gate over HTTP + DB
 npm run db:reset     # wipe and re-seed
@@ -88,7 +88,10 @@ the form).
 ## What is real vs what is mocked
 
 **This table is the source of truth. A row may say REAL only if a test, an API call or a screenshot is
-behind it.** Last verified: **2026-10-31 — `npm test`, both gate scripts, and a production build.**
+behind it.** Last verified: **2026-10-31 — `npm test` (224 tests) and `npm run typecheck` on Node
+24.22.1 / Windows. `npm run build` compiles and prerenders under `--debug-prerender`; the plain
+production build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on a stock app (see
+"Known limits").**
 
 | Capability | Status | What is behind it |
 |---|---|---|
@@ -105,12 +108,18 @@ behind it.** Last verified: **2026-10-31 — `npm test`, both gate scripts, and 
 | LLM classifier | **CONDITIONAL** | OpenRouter when `OPENROUTER_API_KEY` is set; otherwise a labelled **offline** retrieval classifier |
 | The offline classifier | **REAL, LABELLED** | BM25 coverage score, extractive answers. The dashboard shows a persistent banner and the API returns `degraded: true` |
 | Sarvam telephone leg | **NOT PLACED HERE** | Needs `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT`. Without them the panel is an explicit dry run |
-| WhatsApp / Instagram / Gmail transports | **SIMULATED** | The inbound webhook contract is real and idempotent; no live Baileys/Meta/Google session runs in this deployment |
+| Gmail connect / send / receive | **REAL, NOT LIVE-TESTED** | OAuth URL, token refresh, RFC 5322 MIME, thread headers, polling and duplicate suppression in `src/server/integrations/email.ts`, covered by unit tests with a fake `fetch`; no Google credentials existed in this environment |
+| Meta Page / Instagram connect | **REAL, NOT LIVE-TESTED** | Facebook Login, short→long-lived Page token exchange, one-asset selection, encrypted storage, sends via `/{page-id}/messages`; signing and webhook HMAC tested; no Meta app existed in this environment |
+| WhatsApp via local Baileys | **REAL, NOT LIVE-TESTED** | Backend client, QR/status polling, signed inbound and status webhooks; `baileys-service` has its own suite; needs the service, a tunnel and a phone |
+| Credential storage | **REAL** | AES-256-GCM vault over `ChannelConnection.configJson`, HMAC-signed OAuth state (10 min, tenant-bound); tamper/expiry/wrong-secret tests |
+| Webhook authenticity | **REAL** | Meta `X-Hub-Signature-256` HMAC, Baileys shared secret, cron bearer secret — all rejected paths tested |
+| Provider transports in this deployment | **NOT CONNECTED** | The inbound webhook contract is real and idempotent; no live Baileys/Meta/Google session runs in this deployment |
 | Customers, orders, KB content | **SEEDED (by design)** | Retrieval is real; the corpus is authored sample content |
 | Checkout links | **NOT BUILT** | No payment integration, no order mutation |
 
-**Not claimed anywhere:** a trained model of our own, a live WhatsApp/Meta/Google connection, a paid
-telephony leg in this deployment, payment processing, or customer logins (only the owner logs in).
+**Not claimed anywhere:** a trained model of our own, a provider handshake we exercised against a live
+Gmail/Meta/WhatsApp account, a paid telephony leg in this deployment, payment processing, or customer
+logins (only the owner logs in).
 
 ---
 
@@ -160,6 +169,15 @@ Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/AR
 | `GET /api/businesses/[id]/insights` | weekly sentiment + recurring complaints |
 | `POST /api/ai/text-query` | text modal + queue responder (PRD §5.2 shape) |
 | `POST /api/channels/webhook/[provider]` | inbound edge with tenant-scoped `externalMessageId` idempotency; owner session or `x-channel-token` |
+| `GET /api/social/email/status`, `POST …/connect`, `POST …/disconnect` | Gmail link state, OAuth URL, revoke + clear |
+| `GET /api/social/email/callback` | Google redirect target: verifies signed state, stores encrypted tokens |
+| `GET /api/social/email/poll`, `POST …/send` | poll inbound mail (cron secret); send a draft as RFC 5322 MIME |
+| `GET /api/social/meta/status`, `GET …/connect`, `GET …/callback` | Facebook Login round; 20-min encrypted pending selection |
+| `GET /api/social/meta/assets`, `POST …/select-asset` | choose one Page or linked IG account; encrypted long-lived token |
+| `POST /api/social/meta/disconnect`, `POST …/send` | clear one channel / send via `/{page-id}/messages` |
+| `GET/POST /api/social/meta/webhook` | verification handshake and `X-Hub-Signature-256`-verified events |
+| `POST /api/channels/whatsapp/connect`, `GET …/connection`, `POST …/disconnect` | owner-session QR pairing and state; no Baileys secret leaves the backend |
+| `POST /api/channels/whatsapp/inbound`, `POST …/status` | Baileys-service callbacks, authenticated with `x-baileys-secret` |
 | `POST /api/voice/start-session` | bind phone + 4-digit PIN to one business |
 | `POST /api/voice/sarvam-tool-search` | per-business grounded facts mid-call |
 | `POST /api/voice/sarvam-context` | per-call variables for the voice agent |
@@ -185,12 +203,75 @@ Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an emp
 | `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT` | the voice panel is an explicit dry run |
 | `SARVAM_WEBHOOK_TOKEN` | the voice webhook only accepts the signed-in owner's session |
 | `CHANNEL_WEBHOOK_SECRET` | only the signed-in owner (the dashboard simulator) may deliver to a channel webhook |
+| `INTEGRATION_ENCRYPTION_KEY` | provider connect/disconnect answers `503`; no credential is ever stored unencrypted |
+| `INTEGRATION_STATE_SECRET` | falls back to `AUTH_SECRET`; without either, OAuth cannot start |
+| `INTEGRATIONS_BASE_URL` | the request origin is used to build redirect URIs (fine locally, set it when tunnelled) |
+| `EMAIL_GMAIL_CLIENT_ID` + `_SECRET` | the Gmail card reports itself unconfigured |
+| `CRON_SECRET` | `GET /api/social/email/poll` answers `503`; nothing polls in the background |
+| `META_APP_ID` + `META_APP_SECRET` | the Meta cards report themselves unconfigured |
+| `META_WEBHOOK_VERIFY_TOKEN` | Meta's GET handshake fails closed |
+| `BAILEYS_SERVICE_URL` + `BAILEYS_SERVICE_SECRET` | the WhatsApp card is unavailable; its callbacks stay `503` |
 
 `CHANNEL_WEBHOOK_SECRET` is a **platform** credential, not a tenant credential: a provider delivery
 names its business, so one valid token can write to every tenant. Treat it like the database password
 and hand it only to the adapter you operate. Per-business tokens are not built.
 
 No secret is read in a client component. `.env` is gitignored; `.env.example` holds empty values only.
+
+---
+
+## Connected accounts (Gmail, Meta, WhatsApp)
+
+The Channels panel has a **Connected accounts** area. Every card loads the backend's real state, stays
+disabled while its configuration is missing, and only says *connected* after the provider reports an
+open session. Credentials never reach the browser: OAuth runs in a popup or redirect, and the UI only
+renders status fields (mailbox address, Page name, or the transient pairing QR).
+
+### Gmail
+
+1. Create a Google Cloud OAuth client (Web application) and register
+   `<origin>/api/social/email/callback` as an authorized redirect URI.
+2. Set `INTEGRATIONS_BASE_URL`, `EMAIL_GMAIL_CLIENT_ID`, `EMAIL_GMAIL_CLIENT_SECRET`, and
+   `INTEGRATION_ENCRYPTION_KEY` (required before any provider can store credentials).
+3. Connect from the dashboard and grant `gmail.modify`. The refresh token is encrypted at rest and
+   access tokens are refreshed before they expire; only the mailbox address is shown back.
+4. Schedule `GET /api/social/email/poll` with `Authorization: Bearer $CRON_SECRET`. Polling is used
+   because Gmail push delivery needs a Google Cloud Pub/Sub setup this deployment does not include.
+5. Disconnect asks Google to revoke the refresh token (best effort) and always clears the stored
+   tokens.
+
+### Facebook Page & Instagram
+
+1. Create a Meta app, add Facebook Login plus the Messenger/Instagram products, and register
+   `<origin>/api/social/meta/callback`.
+2. Set `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, and
+   `INTEGRATION_ENCRYPTION_KEY`. Meta releases the scopes listed in `.env.example` only to apps that
+   have passed App Review for them.
+3. Point the Page webhook at `<origin>/api/social/meta/webhook` and the Instagram webhook at the app
+   level. Every event is checked against `X-Hub-Signature-256` before it is parsed.
+4. One authorization selects one asset — a Page (Messenger) or a linked Instagram account — valid for
+   20 minutes and stored encrypted. Reconnect to switch assets; there is no "universal Meta key".
+5. Sends use `POST /{page-id}/messages` for both Messenger and Instagram. Disconnect removes the
+   Page subscription (`DELETE /{page-id}/subscribed_apps`), clears the stored token, and restores the
+   channel's previous demo status.
+
+### WhatsApp (Baileys)
+
+1. Run the local service from `baileys-service/` (its README covers install, build, run and the QR
+   flow), expose it through a tunnel, and set its `BAILEYS_SERVICE_SECRET` plus
+   `VERCEL_BACKEND_URL` (or the two explicit webhook URLs).
+2. In this app set the same `BAILEYS_SERVICE_SECRET` and `BAILEYS_SERVICE_URL` (the tunnel origin).
+3. Connect from the dashboard. The backend opens the session and renders the QR the service returns;
+   the QR is pairing material, is never persisted by this app, and disappears once connected.
+4. Baileys session files live in the service's gitignored `sessions/` folder. They never enter this
+   app, the browser, or source control. Disconnect logs the phone out and drops the pairing.
+
+### What is not verified here
+
+The integration code is unit-tested against fake HTTP boundaries (OAuth state, token refresh, MIME,
+signature checks, duplicate suppression, disconnect clearing). No live Gmail mailbox, Meta app or
+phone was available while building this, so the provider handshakes themselves are not claimed as
+verified — and the cards only report what the backend actually measured.
 
 ---
 
@@ -223,13 +304,19 @@ plus the R5 draft hold and the human approve/resolve path.
    demonstrable without a key — and it is labelled on every screen that uses it.
 2. **No telephony in this deployment.** The voice path is real up to the call: session, PIN, scoped
    retrieval and ticket write-back. The dial itself needs Sarvam credentials.
-3. **Channel transports are simulated.** The webhook contract, tenant-scoped idempotency, provider
-   token and routing are real; the WhatsApp/Instagram/Gmail hops are not connected. A real adapter
-   normalises a provider payload into the route's shape and sends `x-channel-token`.
+3. **Provider connections are implemented but not live-verified here.** Gmail, Meta and WhatsApp
+   have real connect/disconnect/send/receive code and unit tests; none of them was exercised against
+   a live provider account in this environment. Without configuration the cards say so instead of
+   pretending. The legacy generic webhook stays available for scripted demos.
 4. **The knowledge base is sample content we wrote.** The retrieval is real; the corpus is not a
    customer's.
 5. **The legacy Pipecat/MCP design is superseded.** `docs/product/CAPABILITY.md` records what changed
    and why the PRD's rule table won.
+6. **Production build is blocked on Windows by a Next.js 16.4.3 bug.** `npm run build` crashes while
+   prerendering the synthetic `/_global-error` page (`Cannot read properties of null (reading
+   'useContext')`). It reproduces on a stock two-file Next 16.4.3 app with this repo's `node_modules`,
+   so it is not caused by this code; `next build --debug-prerender` completes and lists every route.
+   Deployment is expected to build on Linux (Vercel); verify with `vercel build` before a live demo.
 
 ---
 

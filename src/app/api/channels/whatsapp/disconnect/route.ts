@@ -1,56 +1,52 @@
-import { z } from "zod";
-
-import { ApiError, jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
 import {
   type BaileysConnectionSnapshot,
   disconnectBaileysConnection,
   isBaileysConnectionMissing,
-} from "@/lib/baileys";
-import { resolveOwnedWhatsappChannel } from "@/lib/whatsapp-access";
+} from "../../../../../server/integrations/baileys.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { resolveOwnedWhatsappChannel } from "../../../../../server/integrations/whatsapp-access.ts";
 import {
   connectionResponse,
   readWhatsappConnectionId,
   saveWhatsappSnapshot,
-} from "@/lib/whatsapp";
+} from "../../../../../server/integrations/whatsapp.ts";
 
 export const dynamic = "force-dynamic";
-
-const disconnectSchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-  logout: z.boolean().default(true),
-});
 
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = disconnectSchema.parse(await parseJsonBody(request));
-    const { business, channel } = await resolveOwnedWhatsappChannel(
-      user.id,
-      body.businessId
-    );
+    const body = await readJson(request);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    const logout = body.logout === undefined ? true : body.logout === true;
+    const { business, channel } = await resolveOwnedWhatsappChannel(user.id, businessId);
 
     const connectionId = readWhatsappConnectionId(channel.configJson);
     if (!connectionId) {
-      throw new ApiError(
+      throw new IntegrationError(
         404,
         "WHATSAPP_NOT_CONNECTED",
-        "This business has no WhatsApp connection to disconnect."
+        "This business has no WhatsApp connection to disconnect.",
       );
     }
 
     let snapshot: BaileysConnectionSnapshot;
     try {
-      snapshot = await disconnectBaileysConnection(connectionId, business.id, {
-        logout: body.logout,
-      });
+      snapshot = await disconnectBaileysConnection(connectionId, business.id, { logout });
     } catch (error) {
       // The service may have restarted and lost its in-memory record; the
       // sessions on disk are still ours to close out locally.
       if (!isBaileysConnectionMissing(error)) throw error;
       snapshot = {
         connectionId,
-        status: body.logout ? "logged_out" : "disconnected",
+        status: logout ? "logged_out" : "disconnected",
         qr: null,
         qrExpiresAt: null,
         connectedAt: null,
@@ -60,8 +56,8 @@ export async function POST(request: Request) {
     }
 
     const updated = await saveWhatsappSnapshot(channel, snapshot);
-    return jsonOk(connectionResponse(updated, snapshot));
+    return NextResponse.json(connectionResponse(updated, snapshot));
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

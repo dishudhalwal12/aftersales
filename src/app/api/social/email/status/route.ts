@@ -1,7 +1,11 @@
-import { ApiError, jsonOk, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, requireUser } from "@/lib/auth";
-import { getEmailStatus } from "@/lib/email";
-import { isIntegrationEncryptionConfigured, isOAuthStateSigningConfigured } from "@/lib/integration-crypto";
+import { NextResponse } from "next/server";
+import { errorResponse, loadOwnedBusiness, requireUser } from "../../../../../server/auth/tenant.ts";
+import {
+  isIntegrationEncryptionConfigured,
+  isOAuthStateSigningConfigured,
+} from "../../../../../server/integrations/crypto.ts";
+import { getEmailStatus } from "../../../../../server/integrations/email.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -10,17 +14,17 @@ export async function GET(request: Request) {
     const user = await requireUser();
     const businessId = new URL(request.url).searchParams.get("businessId")?.trim();
     if (!businessId) {
-      throw new ApiError(400, "VALIDATION_ERROR", "businessId is required.");
+      throw new IntegrationError(400, "VALIDATION_ERROR", "businessId is required.");
     }
-    await assertBusinessOwnership(user.id, businessId);
+    await loadOwnedBusiness(user.id, businessId);
 
     const status = await getEmailStatus(businessId);
-    return jsonOk({
+    return NextResponse.json({
       ...status,
       encryptionConfigured: isIntegrationEncryptionConfigured(),
       oauthStateConfigured: isOAuthStateSigningConfigured(),
     });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

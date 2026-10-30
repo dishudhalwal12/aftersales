@@ -4,8 +4,7 @@
 
 import { NextResponse } from "next/server";
 
-import { jsonOk } from "./api";
-import { readFrontendRedirectUrl } from "./integrations";
+import { readFrontendRedirectUrl } from "./base-url.ts";
 
 export type OAuthCallbackPayload = {
   integration: "email" | "meta";
@@ -31,7 +30,7 @@ export function oauthCallbackResponse(payload: OAuthCallbackPayload): NextRespon
     }
   }
 
-  return jsonOk(
+  return NextResponse.json(
     {
       integration: payload.integration,
       status: payload.status,
@@ -39,6 +38,6 @@ export function oauthCallbackResponse(payload: OAuthCallbackPayload): NextRespon
       ...(payload.error ? { error: payload.error } : {}),
       ...(payload.details ?? {}),
     },
-    payload.error ? 400 : 200
+    { status: payload.error ? 400 : 200 },
   );
 }

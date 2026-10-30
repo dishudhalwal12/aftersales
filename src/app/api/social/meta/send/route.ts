@@ -1,33 +1,44 @@
-import { z } from "zod";
-
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, requireUser } from "@/lib/auth";
-import { sendMetaForBusiness } from "@/lib/meta";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  loadOwnedBusiness,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { sendMetaForBusiness } from "../../../../../server/integrations/meta.ts";
 
 export const dynamic = "force-dynamic";
-
-const sendSchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-  channel: z.enum(["facebook", "instagram"]),
-  recipientId: z.string().trim().min(1, "recipientId is required.").max(200),
-  text: z.string().trim().min(1, "text is required.").max(2000),
-});
 
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = sendSchema.parse(await parseJsonBody(request));
-    await assertBusinessOwnership(user.id, body.businessId);
+    const body = await readJson(request);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    await loadOwnedBusiness(user.id, businessId);
+
+    const rawChannel = requireString(body, "channel", { max: 20 }).toLowerCase();
+    if (rawChannel !== "facebook" && rawChannel !== "instagram") {
+      throw new IntegrationError(
+        400,
+        "VALIDATION_ERROR",
+        'channel must be "facebook" or "instagram"',
+      );
+    }
+
+    const recipientId = requireString(body, "recipientId", { max: 200 });
+    const text = requireString(body, "text", { max: 2000 });
 
     const result = await sendMetaForBusiness({
-      businessId: body.businessId,
-      provider: body.channel === "facebook" ? "FACEBOOK" : "INSTAGRAM",
-      recipientId: body.recipientId,
-      text: body.text,
+      businessId,
+      provider: rawChannel === "facebook" ? "FACEBOOK" : "INSTAGRAM",
+      recipientId,
+      text,
     });
 
-    return jsonOk({ sent: true, ...result });
+    return NextResponse.json({ sent: true, ...result });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

@@ -4,12 +4,12 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { ApiError } from "./api";
+import { IntegrationError } from "./errors.ts";
 
 export function assertCronSecret(request: Request): void {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "CRON_NOT_CONFIGURED",
       "CRON_SECRET is not set, so scheduled integration jobs are disabled."
@@ -23,12 +23,12 @@ export function assertCronSecret(request: Request): void {
   const provided = bearer || request.headers.get("x-cron-secret")?.trim() || "";
 
   if (!provided) {
-    throw new ApiError(401, "UNAUTHORIZED", "Scheduled job authentication failed.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Scheduled job authentication failed.");
   }
 
   const expected = createHash("sha256").update(secret, "utf8").digest();
   const actual = createHash("sha256").update(provided, "utf8").digest();
   if (!timingSafeEqual(expected, actual)) {
-    throw new ApiError(401, "UNAUTHORIZED", "Scheduled job authentication failed.");
+    throw new IntegrationError(401, "UNAUTHORIZED", "Scheduled job authentication failed.");
   }
 }

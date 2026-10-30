@@ -17,6 +17,16 @@ export function useDataChanged(handler: () => void): void {
   }, [handler]);
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -33,7 +43,7 @@ export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
       typeof body === "object" && body !== null && "error" in body
         ? ((body as { error?: { message?: string } }).error?.message ?? `request failed (${response.status})`)
         : `request failed (${response.status})`;
-    throw new Error(message);
+    throw new ApiError(response.status, message);
   }
   return body as T;
 }

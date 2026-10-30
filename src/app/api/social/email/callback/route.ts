@@ -1,8 +1,9 @@
-import { ApiError, toErrorResponse } from "@/lib/api";
-import { recordIntegrationError } from "@/lib/channels";
-import { completeEmailConnection } from "@/lib/email";
-import { verifyOAuthState } from "@/lib/integration-crypto";
-import { oauthCallbackResponse } from "@/lib/oauth-redirect";
+import { errorResponse } from "../../../../../server/auth/tenant.ts";
+import { recordIntegrationError } from "../../../../../server/integrations/channels.ts";
+import { completeEmailConnection } from "../../../../../server/integrations/email.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { verifyOAuthState } from "../../../../../server/integrations/crypto.ts";
+import { oauthCallbackResponse } from "../../../../../server/integrations/redirect.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -17,20 +18,28 @@ export async function GET(request: Request) {
     businessId = state.businessId;
 
     if (state.provider !== "gmail") {
-      throw new ApiError(400, "OAUTH_PROVIDER_MISMATCH", "This state belongs to a different provider.");
+      throw new IntegrationError(
+        400,
+        "OAUTH_PROVIDER_MISMATCH",
+        "This state belongs to a different provider.",
+      );
     }
 
     if (url.searchParams.get("error")) {
-      throw new ApiError(
+      throw new IntegrationError(
         400,
         "EMAIL_OAUTH_DENIED",
-        "Google access was cancelled or denied. Start the connection again to retry."
+        "Google access was cancelled or denied. Start the connection again to retry.",
       );
     }
 
     const code = url.searchParams.get("code");
     if (!code) {
-      throw new ApiError(400, "EMAIL_OAUTH_CODE_MISSING", "Google did not return an authorization code.");
+      throw new IntegrationError(
+        400,
+        "EMAIL_OAUTH_CODE_MISSING",
+        "Google did not return an authorization code.",
+      );
     }
 
     const { emailAddress } = await completeEmailConnection({
@@ -47,21 +56,25 @@ export async function GET(request: Request) {
       details: { emailAddress },
     });
   } catch (error) {
-    const apiError =
-      error instanceof ApiError
+    const failure =
+      error instanceof IntegrationError
         ? error
-        : new ApiError(500, "EMAIL_OAUTH_FAILED", "The email connection could not be completed.");
+        : new IntegrationError(
+            500,
+            "EMAIL_OAUTH_FAILED",
+            "The email connection could not be completed.",
+          );
 
     if (businessId) {
-      await recordIntegrationError(businessId, "GMAIL", "emailLastError", apiError.message);
+      await recordIntegrationError(businessId, "GMAIL", "emailLastError", failure.message);
       return oauthCallbackResponse({
         integration: "email",
         status: "error",
         businessId,
-        error: apiError.code,
+        error: failure.reason,
       });
     }
 
-    return toErrorResponse(apiError);
+    return errorResponse(failure);
   }
 }

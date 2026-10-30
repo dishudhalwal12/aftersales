@@ -1,11 +1,13 @@
-import { ApiError, jsonError, jsonOk, toErrorResponse } from "@/lib/api";
+import { NextResponse } from "next/server";
+import { errorResponse } from "../../../../../server/auth/tenant.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
 import {
   processMetaWebhook,
   readMetaSettings,
   verifyMetaSignature,
   verifyMetaWebhookChallenge,
   type MetaWebhookPayload,
-} from "@/lib/meta";
+} from "../../../../../server/integrations/meta.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
     });
 
     if (!challenge) {
-      throw new ApiError(403, "META_VERIFY_FAILED", "Webhook verification failed.");
+      throw new IntegrationError(403, "META_VERIFY_FAILED", "Webhook verification failed.");
     }
 
     return new Response(challenge, {
@@ -30,7 +32,7 @@ export async function GET(request: Request) {
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }
 
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
   try {
     const settings = readMetaSettings();
     if (!settings.appSecret) {
-      throw new ApiError(503, "META_NOT_CONFIGURED", "META_APP_SECRET is not set.");
+      throw new IntegrationError(503, "META_NOT_CONFIGURED", "META_APP_SECRET is not set.");
     }
 
     const rawBody = await request.text();
@@ -48,24 +50,31 @@ export async function POST(request: Request) {
       !verifyMetaSignature(
         rawBody,
         request.headers.get("x-hub-signature-256"),
-        settings.appSecret
+        settings.appSecret,
       )
     ) {
-      throw new ApiError(401, "META_SIGNATURE_INVALID", "Webhook signature verification failed.");
+      throw new IntegrationError(
+        401,
+        "META_SIGNATURE_INVALID",
+        "Webhook signature verification failed.",
+      );
     }
 
     let payload: MetaWebhookPayload;
     try {
       payload = JSON.parse(rawBody) as MetaWebhookPayload;
     } catch {
-      return jsonError(400, "INVALID_JSON", "Webhook body must be valid JSON.");
+      return NextResponse.json(
+        { error: { code: 400, message: "Webhook body must be valid JSON." } },
+        { status: 400 },
+      );
     }
 
     // Meta expects a fast 2xx; per-message failures are logged inside the
     // handler and do not turn into a retry storm.
     const summary = await processMetaWebhook(payload);
-    return jsonOk({ ok: true, ...summary });
+    return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

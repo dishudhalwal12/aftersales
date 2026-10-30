@@ -12,7 +12,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
-import { ApiError } from "./api";
+import { IntegrationError } from "./errors.ts";
 
 const CIPHER = "aes-256-gcm";
 const CIPHER_PREFIX = "v1";
@@ -27,7 +27,7 @@ export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 function readEncryptionKey(): Buffer {
   const raw = process.env.INTEGRATION_ENCRYPTION_KEY?.trim();
   if (!raw) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "INTEGRATION_ENCRYPTION_NOT_CONFIGURED",
       "INTEGRATION_ENCRYPTION_KEY is not set, so channel credentials cannot be stored."
@@ -39,7 +39,7 @@ function readEncryptionKey(): Buffer {
     : Buffer.from(raw, "base64");
 
   if (key.length !== KEY_BYTES) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "INTEGRATION_ENCRYPTION_KEY_INVALID",
       "INTEGRATION_ENCRYPTION_KEY must be 32 bytes encoded as base64 or 64 hex characters."
@@ -77,7 +77,7 @@ export function encryptSecret(plaintext: string): string {
 export function decryptSecret(payload: string): string {
   const parts = payload.split(".");
   if (parts.length !== 4 || parts[0] !== CIPHER_PREFIX) {
-    throw new ApiError(
+    throw new IntegrationError(
       500,
       "INTEGRATION_SECRET_UNREADABLE",
       "The stored integration credential could not be read."
@@ -86,9 +86,15 @@ export function decryptSecret(payload: string): string {
 
   try {
     const key = readEncryptionKey();
-    const iv = Buffer.from(parts[1], "base64url");
-    const tag = Buffer.from(parts[2], "base64url");
-    const ciphertext = Buffer.from(parts[3], "base64url");
+    const ivPart = parts[1];
+    const tagPart = parts[2];
+    const cipherPart = parts[3];
+    if (!ivPart || !tagPart || !cipherPart) {
+      throw new Error("Malformed ciphertext.");
+    }
+    const iv = Buffer.from(ivPart, "base64url");
+    const tag = Buffer.from(tagPart, "base64url");
+    const ciphertext = Buffer.from(cipherPart, "base64url");
 
     if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES) {
       throw new Error("Invalid IV or auth tag.");
@@ -98,8 +104,8 @@ export function decryptSecret(payload: string): string {
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
   } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(
+    if (error instanceof IntegrationError) throw error;
+    throw new IntegrationError(
       500,
       "INTEGRATION_SECRET_UNREADABLE",
       "The stored integration credential could not be read."
@@ -113,7 +119,7 @@ function readStateSecret(): string {
     process.env.AUTH_SECRET?.trim() ||
     process.env.NEXTAUTH_SECRET?.trim();
   if (!secret) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "INTEGRATION_STATE_NOT_CONFIGURED",
       "OAuth state signing is not configured. Set INTEGRATION_STATE_SECRET or AUTH_SECRET."
@@ -155,7 +161,7 @@ export function signOAuthState(
   ttlSeconds = OAUTH_STATE_TTL_SECONDS
 ): string {
   if (!(OAUTH_PROVIDERS as readonly string[]).includes(payload.provider)) {
-    throw new ApiError(400, "OAUTH_PROVIDER_INVALID", "Unsupported OAuth provider.");
+    throw new IntegrationError(400, "OAUTH_PROVIDER_INVALID", "Unsupported OAuth provider.");
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -180,11 +186,11 @@ function decodeStateEnvelope(body: string): StateEnvelope {
   try {
     parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
   } catch {
-    throw new ApiError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
+    throw new IntegrationError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
   }
 
   if (typeof parsed !== "object" || parsed === null) {
-    throw new ApiError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
+    throw new IntegrationError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
   }
 
   const value = parsed as Partial<StateEnvelope>;
@@ -202,7 +208,7 @@ function decodeStateEnvelope(body: string): StateEnvelope {
     typeof value.expiresAt === "number";
 
   if (!valid) {
-    throw new ApiError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
+    throw new IntegrationError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
   }
 
   return value as StateEnvelope;
@@ -210,12 +216,12 @@ function decodeStateEnvelope(body: string): StateEnvelope {
 
 export function verifyOAuthState(token: string | null | undefined): VerifiedOAuthState {
   if (!token) {
-    throw new ApiError(400, "OAUTH_STATE_MISSING", "The OAuth state parameter is missing.");
+    throw new IntegrationError(400, "OAUTH_STATE_MISSING", "The OAuth state parameter is missing.");
   }
 
   const [body, signature, extra] = token.split(".");
   if (!body || !signature || extra !== undefined) {
-    throw new ApiError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
+    throw new IntegrationError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
   }
 
   const expected = hmacState(body);
@@ -223,16 +229,16 @@ export function verifyOAuthState(token: string | null | undefined): VerifiedOAut
   try {
     provided = Buffer.from(signature, "base64url");
   } catch {
-    throw new ApiError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
+    throw new IntegrationError(400, "OAUTH_STATE_INVALID", "The OAuth state could not be read.");
   }
 
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
-    throw new ApiError(400, "OAUTH_STATE_INVALID", "The OAuth state signature is not valid.");
+    throw new IntegrationError(400, "OAUTH_STATE_INVALID", "The OAuth state signature is not valid.");
   }
 
   const envelope = decodeStateEnvelope(body);
   if (envelope.expiresAt * 1000 < Date.now()) {
-    throw new ApiError(400, "OAUTH_STATE_EXPIRED", "The OAuth state has expired. Try connecting again.");
+    throw new IntegrationError(400, "OAUTH_STATE_EXPIRED", "The OAuth state has expired. Try connecting again.");
   }
 
   return envelope;

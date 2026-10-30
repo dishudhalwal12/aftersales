@@ -13,18 +13,20 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import type { Business, ChannelConnection } from "@prisma/client";
 
-import { ApiError } from "./api";
-import { handleInboundWebhook } from "./channel-webhook";
+import { respondToContact, type InboundContact, type RespondResult } from "../business/service.ts";
+import { prisma } from "../db.ts";
 import {
   ensureChannelConnection,
   isChannelStatus,
   readChannelConfig,
   recordIntegrationError,
   updateChannelConfig,
-} from "./channels";
-import { prisma } from "./db";
-import { decryptSecret, encryptSecret } from "./integration-crypto";
-import type { TriageDependencies } from "./triage";
+} from "./channels.ts";
+import { decryptSecret, encryptSecret } from "./crypto.ts";
+import { IntegrationError } from "./errors.ts";
+
+/** Inbound hand-off, injectable so tests can exercise the flow without the LLM. */
+export type MetaRespond = (contact: InboundContact) => Promise<RespondResult>;
 
 const GRAPH_BASE = "https://graph.facebook.com";
 const OAUTH_DIALOG_BASE = "https://www.facebook.com";
@@ -113,7 +115,7 @@ function graphErrorCode(json: JsonRecord): number | null {
 export function buildMetaAuthorizationUrl(input: { redirectUri: string; state: string }): string {
   const settings = readMetaSettings();
   if (!settings.configured) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "META_NOT_CONFIGURED",
       "Meta OAuth is not configured. Set META_APP_ID and META_APP_SECRET."
@@ -140,11 +142,11 @@ export type MetaTokenResult = {
 export async function exchangeMetaCode(input: {
   code: string;
   redirectUri: string;
-  fetchImpl?: MetaFetch;
+  fetchImpl?: MetaFetch | undefined;
 }): Promise<MetaTokenResult> {
   const settings = readMetaSettings();
   if (!settings.configured) {
-    throw new ApiError(503, "META_NOT_CONFIGURED", "Meta OAuth is not configured.");
+    throw new IntegrationError(503, "META_NOT_CONFIGURED", "Meta OAuth is not configured.");
   }
 
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -157,7 +159,7 @@ export async function exchangeMetaCode(input: {
   const shortResponse = await fetchImpl(shortUrl.toString());
   const shortJson = await readJson(shortResponse);
   if (!shortResponse.ok || typeof shortJson.access_token !== "string") {
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "META_OAUTH_FAILED",
       safeGraphError(shortJson) ?? "Meta rejected the authorization code."
@@ -173,7 +175,7 @@ export async function exchangeMetaCode(input: {
   const longResponse = await fetchImpl(longUrl.toString());
   const longJson = await readJson(longResponse);
   if (!longResponse.ok || typeof longJson.access_token !== "string") {
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "META_TOKEN_EXCHANGE_FAILED",
       safeGraphError(longJson) ?? "Meta did not return a long-lived access token."
@@ -244,7 +246,7 @@ export async function fetchMetaPages(
     });
     const json = await readJson(response);
     if (!response.ok) {
-      throw new ApiError(
+      throw new IntegrationError(
         502,
         "META_ASSETS_FAILED",
         safeGraphError(json) ?? "Meta did not return the authorized Pages."
@@ -409,14 +411,14 @@ export async function getMetaAssetsForBusiness(
   const channel = await findPendingChannel(businessId);
   const pending = readMetaPending(channel.configJson);
   if (!pending) {
-    throw new ApiError(
+    throw new IntegrationError(
       410,
       "META_SELECTION_EXPIRED",
       "The Meta selection expired. Start the Meta connection again."
     );
   }
   if (pending.userId !== userId) {
-    throw new ApiError(403, "FORBIDDEN", "This Meta selection belongs to a different user.");
+    throw new IntegrationError(403, "FORBIDDEN", "This Meta selection belongs to a different user.");
   }
 
   return { assets: toMetaAssets(pending.pages), expiresAt: pending.expiresAt };
@@ -427,14 +429,14 @@ export async function completeMetaAuthorization(input: {
   userId: string;
   code: string;
   redirectUri: string;
-  fetchImpl?: MetaFetch;
+  fetchImpl?: MetaFetch | undefined;
 }): Promise<{ assets: MetaAsset[]; expiresAt: string }> {
   const business = await prisma.business.findFirst({
     where: { id: input.businessId, ownerId: input.userId },
     select: { id: true },
   });
   if (!business) {
-    throw new ApiError(403, "FORBIDDEN", "You do not have access to this business.");
+    throw new IntegrationError(403, "FORBIDDEN", "You do not have access to this business.");
   }
 
   const token = await exchangeMetaCode({
@@ -444,7 +446,7 @@ export async function completeMetaAuthorization(input: {
   });
   const pages = await fetchMetaPages(token.accessToken, input.fetchImpl ?? fetch);
   if (pages.length === 0) {
-    throw new ApiError(
+    throw new IntegrationError(
       400,
       "META_NO_ASSETS",
       "No Facebook Page with messaging access was returned. Check that the owner manages a Page and granted pages_show_list."
@@ -552,7 +554,7 @@ export async function subscribePageToApp(
   });
   const json = await readJson(response);
   if (!response.ok || json.success === false) {
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "META_SUBSCRIBE_FAILED",
       safeGraphError(json) ?? "Meta did not accept the Page webhook subscription."
@@ -565,7 +567,7 @@ export type SelectMetaAssetInput = {
   userId: string;
   kind: "page" | "instagram";
   assetId: string;
-  fetchImpl?: MetaFetch;
+  fetchImpl?: MetaFetch | undefined;
 };
 
 export type MetaChannelSummary = {
@@ -606,20 +608,20 @@ export async function selectMetaAsset(
     select: { id: true },
   });
   if (!business) {
-    throw new ApiError(403, "FORBIDDEN", "You do not have access to this business.");
+    throw new IntegrationError(403, "FORBIDDEN", "You do not have access to this business.");
   }
 
   const pendingChannel = await findPendingChannel(input.businessId);
   const pending = readMetaPending(pendingChannel.configJson);
   if (!pending) {
-    throw new ApiError(
+    throw new IntegrationError(
       410,
       "META_SELECTION_EXPIRED",
       "The Meta selection expired. Start the Meta connection again."
     );
   }
   if (pending.userId !== input.userId) {
-    throw new ApiError(403, "FORBIDDEN", "This Meta selection belongs to a different user.");
+    throw new IntegrationError(403, "FORBIDDEN", "This Meta selection belongs to a different user.");
   }
 
   let selectedPage: StoredMetaPage | null = null;
@@ -631,7 +633,7 @@ export async function selectMetaAsset(
   }
 
   if (!selectedPage) {
-    throw new ApiError(
+    throw new IntegrationError(
       400,
       "META_ASSET_NOT_AVAILABLE",
       "That Page or Instagram account is not accessible through the Meta login that was just authorized."
@@ -725,7 +727,7 @@ export async function sendMetaMessage(
 ): Promise<{ messageId: string }> {
   const connection = readMetaConnection(channel.configJson);
   if (!connection || channel.status !== "CONNECTED") {
-    throw new ApiError(409, "META_NOT_CONNECTED", "Connect a Meta Page or Instagram account first.");
+    throw new IntegrationError(409, "META_NOT_CONNECTED", "Connect a Meta Page or Instagram account first.");
   }
 
   const pageAccessToken = decryptSecret(connection.token);
@@ -752,13 +754,13 @@ export async function sendMetaMessage(
         channel,
         "Meta rejected the Page access token. Reconnect the Meta channel."
       );
-      throw new ApiError(
+      throw new IntegrationError(
         401,
         "META_RECONNECT_REQUIRED",
         "Meta rejected the Page access token. Reconnect the Meta channel."
       );
     }
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "META_SEND_FAILED",
       safeGraphError(json) ?? "Meta did not accept the message."
@@ -775,7 +777,7 @@ export async function sendMetaForBusiness(input: {
   provider: "FACEBOOK" | "INSTAGRAM";
   recipientId: string;
   text: string;
-  fetchImpl?: MetaFetch;
+  fetchImpl?: MetaFetch | undefined;
 }): Promise<{ messageId: string; provider: "FACEBOOK" | "INSTAGRAM" }> {
   const channel = await prisma.channelConnection.findUnique({
     where: {
@@ -783,7 +785,7 @@ export async function sendMetaForBusiness(input: {
     },
   });
   if (!channel) {
-    throw new ApiError(409, "META_NOT_CONNECTED", "Connect a Meta Page or Instagram account first.");
+    throw new IntegrationError(409, "META_NOT_CONNECTED", "Connect a Meta Page or Instagram account first.");
   }
 
   const result = await sendMetaMessage(
@@ -798,7 +800,7 @@ export async function sendMetaForBusiness(input: {
 export type DisconnectMetaInput = {
   businessId: string;
   channel: "facebook" | "instagram" | "all";
-  fetchImpl?: MetaFetch;
+  fetchImpl?: MetaFetch | undefined;
 };
 
 export type DisconnectMetaResult = {
@@ -957,7 +959,7 @@ export type MetaWebhookSummary = {
 };
 
 type MetaWebhookDependencies = {
-  llm?: TriageDependencies["llm"];
+  respond?: MetaRespond;
   fetch?: MetaFetch;
 };
 
@@ -1058,17 +1060,14 @@ export async function processMetaWebhook(
       }
 
       try {
-        const outcome = await handleInboundWebhook(
-          {
-            business,
-            provider: target.provider,
-            externalMessageId: `meta:${object}:${mid}`,
-            customerName: senderId,
-            customerHandle: senderId,
-            message: text,
-          },
-          { llm: deps.llm }
-        );
+        const outcome = await (deps.respond ?? respondToContact)({
+          business,
+          channel: target.provider,
+          externalMessageId: `meta:${object}:${mid}`,
+          customerName: senderId,
+          customerHandle: senderId,
+          query: text,
+        });
 
         if (outcome.duplicate) {
           summary.duplicates += 1;
@@ -1076,12 +1075,12 @@ export async function processMetaWebhook(
         }
 
         summary.processed += 1;
-        if (outcome.result.shouldAutoSend && outcome.result.answer.trim()) {
+        if (outcome.shouldAutoSend && outcome.answer.trim()) {
           try {
             await sendMetaMessage(
               target.channel,
               senderId,
-              outcome.result.answer,
+              outcome.answer,
               deps.fetch ?? fetch
             );
             summary.repliesSent += 1;
@@ -1089,7 +1088,7 @@ export async function processMetaWebhook(
             summary.errors += 1;
             console.error("[meta] auto-reply failed", {
               businessId: business.id,
-              ticketId: outcome.result.ticketId,
+              ticketId: outcome.ticketId,
               error: error instanceof Error ? error.message : error,
             });
           }

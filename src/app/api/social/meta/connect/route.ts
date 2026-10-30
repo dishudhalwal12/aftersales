@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-
-import { ApiError, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, requireUser } from "@/lib/auth";
-import { ensureChannelConnection } from "@/lib/channels";
-import { isIntegrationEncryptionConfigured, isOAuthStateSigningConfigured, signOAuthState } from "@/lib/integration-crypto";
-import { resolveIntegrationBaseUrl } from "@/lib/integrations";
-import { buildMetaAuthorizationUrl, readMetaSettings } from "@/lib/meta";
+import { errorResponse, loadOwnedBusiness, requireUser } from "../../../../../server/auth/tenant.ts";
+import { resolveIntegrationBaseUrl } from "../../../../../server/integrations/base-url.ts";
+import { ensureChannelConnection } from "../../../../../server/integrations/channels.ts";
+import {
+  isIntegrationEncryptionConfigured,
+  isOAuthStateSigningConfigured,
+  signOAuthState,
+} from "../../../../../server/integrations/crypto.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { buildMetaAuthorizationUrl, readMetaSettings } from "../../../../../server/integrations/meta.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -16,23 +19,23 @@ export async function GET(request: Request) {
     const user = await requireUser();
     const businessId = new URL(request.url).searchParams.get("businessId")?.trim();
     if (!businessId) {
-      throw new ApiError(400, "VALIDATION_ERROR", "businessId is required.");
+      throw new IntegrationError(400, "VALIDATION_ERROR", "businessId is required.");
     }
-    await assertBusinessOwnership(user.id, businessId);
+    await loadOwnedBusiness(user.id, businessId);
 
     const settings = readMetaSettings();
     if (!settings.configured) {
-      throw new ApiError(
+      throw new IntegrationError(
         503,
         "META_NOT_CONFIGURED",
-        "Meta OAuth is not configured. Set META_APP_ID and META_APP_SECRET."
+        "Meta OAuth is not configured. Set META_APP_ID and META_APP_SECRET.",
       );
     }
     if (!isIntegrationEncryptionConfigured() || !isOAuthStateSigningConfigured()) {
-      throw new ApiError(
+      throw new IntegrationError(
         503,
         "INTEGRATIONS_NOT_CONFIGURED",
-        "Set INTEGRATION_ENCRYPTION_KEY and INTEGRATION_STATE_SECRET before connecting channels."
+        "Set INTEGRATION_ENCRYPTION_KEY and INTEGRATION_STATE_SECRET before connecting channels.",
       );
     }
 
@@ -42,10 +45,10 @@ export async function GET(request: Request) {
     try {
       baseUrl = resolveIntegrationBaseUrl(request.url);
     } catch {
-      throw new ApiError(
+      throw new IntegrationError(
         503,
         "INTEGRATIONS_BASE_URL_MISSING",
-        "Set INTEGRATIONS_BASE_URL to the public backend URL (for example https://your-app.vercel.app)."
+        "Set INTEGRATIONS_BASE_URL to the public backend URL (for example https://your-app.vercel.app).",
       );
     }
 
@@ -59,6 +62,6 @@ export async function GET(request: Request) {
 
     return NextResponse.redirect(buildMetaAuthorizationUrl({ redirectUri, state }));
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

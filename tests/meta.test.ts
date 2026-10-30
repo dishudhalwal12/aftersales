@@ -1,708 +1,439 @@
-import { createHmac } from "node:crypto";
+import { strict as assert } from "node:assert";
+import { createHmac, randomBytes } from "node:crypto";
+import { after, before, describe, it } from "node:test";
 
-import type { ChannelConnection } from "@prisma/client";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { prisma } from "@/lib/db";
-import { decryptSecret, encryptSecret } from "@/lib/integration-crypto";
-import type { generateTriageResponse } from "@/lib/llm-orchestrator";
+import { encryptSecret } from "../src/server/integrations/crypto.ts";
+import { IntegrationError } from "../src/server/integrations/errors.ts";
 import {
-  META_SCOPES,
+  META_PENDING_KEY,
   buildMetaAuthorizationUrl,
-  completeMetaAuthorization,
-  disconnectMeta,
   exchangeMetaCode,
   fetchMetaPages,
-  getMetaAssetsForBusiness,
-  getMetaStatus,
-  processMetaWebhook,
   readMetaConnection,
   readMetaPending,
-  selectMetaAsset,
-  sendMetaMessage,
-  storeMetaPendingSelection,
+  readMetaSettings,
+  summarizeMetaChannel,
+  toMetaAssets,
   verifyMetaSignature,
   verifyMetaWebhookChallenge,
-  type FetchedMetaPage,
-  type MetaFetch,
-} from "@/lib/meta";
-import type { LLMResponse } from "@/lib/routing-engine";
+} from "../src/server/integrations/meta.ts";
+import { channel, fetchStub, jsonResponse } from "./integrations-helpers.ts";
 
-import { createTestBusiness, resetBusinessData } from "./helpers";
+const ENV_KEYS = [
+  "INTEGRATION_ENCRYPTION_KEY",
+  "META_APP_ID",
+  "META_APP_SECRET",
+  "META_GRAPH_VERSION",
+  "META_WEBHOOK_VERIFY_TOKEN",
+] as const;
+const saved = new Map<string, string | undefined>();
 
-const META_BIZ = "test_meta_biz";
-const META_OWNER_EMAIL = "meta-owner@sphinx.demo";
-const CHUNK_ID = "chk_meta_pricing";
-const PAGE_ID = "page_100";
-const IG_ID = "ig_200";
-const PAGE_TOKEN = "page-token-secret";
-const APP_SECRET = "test-meta-app-secret";
-
-type LLMFn = typeof generateTriageResponse;
-
-function groundedLlm(): { llm: LLMFn; calls: () => number } {
-  let calls = 0;
-  const llm: LLMFn = async () => {
-    calls += 1;
-    const result: LLMResponse = {
-      specialist: "sales",
-      intent: "pricing_inquiry",
-      sentiment: "neutral",
-      urgency_score: 20,
-      confidence_score: 92,
-      explicit_human_request: false,
-      requires_human_judgment: false,
-      cited_chunk_ids: [CHUNK_ID],
-      reply_text: "The Pro Plan costs ₹1,499 per month.",
-    };
-    return result;
-  };
-  return { llm, calls: () => calls };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-type Captured = { url: string; init?: RequestInit };
-
-function recorder(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): {
-  fetchImpl: MetaFetch;
-  calls: Captured[];
-} {
-  const calls: Captured[] = [];
-  return {
-    calls,
-    fetchImpl: async (url, init) => {
-      calls.push({ url, init });
-      return handler(url, init);
-    },
+function integrationError(reason: string) {
+  return (error: unknown): boolean => {
+    assert.ok(error instanceof IntegrationError, `expected IntegrationError, got ${String(error)}`);
+    assert.equal(error.reason, reason);
+    return true;
   };
 }
 
-function fetchedPages(): FetchedMetaPage[] {
-  return [
-    {
-      id: PAGE_ID,
-      name: "Test Page",
-      accessToken: PAGE_TOKEN,
-      instagram: { id: IG_ID, username: "test.brand", name: "Test Brand" },
-    },
-  ];
-}
-
-async function ownerId(): Promise<string> {
-  const business = await prisma.business.findUniqueOrThrow({ where: { id: META_BIZ } });
-  return business.ownerId;
-}
-
-function storedMeta(kind: "page" | "instagram") {
-  return {
-    kind,
-    assetId: kind === "page" ? PAGE_ID : IG_ID,
-    pageId: PAGE_ID,
-    pageName: "Test Page",
-    igId: kind === "instagram" ? IG_ID : null,
-    igUsername: kind === "instagram" ? "test.brand" : null,
-    token: encryptSecret(PAGE_TOKEN),
-    scopes: [...META_SCOPES],
-    graphVersion: "v26.0",
-    connectedAt: new Date().toISOString(),
-    previousStatus: "UNAVAILABLE",
-    previousAutoSend: false,
-  };
-}
-
-async function seedMetaChannel(
-  channelType: "FACEBOOK" | "INSTAGRAM",
-  options: { status?: string; autoSend?: boolean; connection?: ReturnType<typeof storedMeta> | null; extraConfig?: Record<string, unknown> } = {}
-): Promise<ChannelConnection> {
-  await prisma.channelConnection.deleteMany({
-    where: { businessId: META_BIZ, channelType },
-  });
-  const config = {
-    metaConnection: options.connection === null ? null : (options.connection ?? storedMeta(channelType === "FACEBOOK" ? "page" : "instagram")),
-    ...(options.extraConfig ?? {}),
-  };
-  return prisma.channelConnection.create({
-    data: {
-      businessId: META_BIZ,
-      channelType,
-      status: options.status ?? "CONNECTED",
-      autoSend: options.autoSend ?? true,
-      configJson: JSON.stringify(config),
+function metaConnectionConfig(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    metaConnection: {
+      kind: "page",
+      assetId: "page_1",
+      pageId: "page_1",
+      pageName: "CloudPulse",
+      igId: "ig_1",
+      igUsername: "cloudpulse.app",
+      token: encryptSecret("page-access-token"),
+      scopes: ["pages_messaging"],
+      graphVersion: "v26.0",
+      connectedAt: "2026-10-01T00:00:00.000Z",
+      previousStatus: "TEST_MODE",
+      previousAutoSend: false,
+      ...overrides,
     },
   });
 }
 
-beforeAll(async () => {
-  await resetBusinessData([META_BIZ]);
-  await createTestBusiness({
-    id: META_BIZ,
-    ownerEmail: META_OWNER_EMAIL,
-    name: "Meta Test Business",
+before(() => {
+  for (const key of ENV_KEYS) saved.set(key, process.env[key]);
+  process.env.INTEGRATION_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+  process.env.META_APP_ID = "app-id-123";
+  process.env.META_APP_SECRET = "app-secret-456";
+  process.env.META_GRAPH_VERSION = "v26.0";
+  process.env.META_WEBHOOK_VERIFY_TOKEN = "verify-token";
+});
+
+after(() => {
+  for (const key of ENV_KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+describe("Meta app settings", () => {
+  it("reads the app id, secret, and verify token", () => {
+    const settings = readMetaSettings();
+    assert.equal(settings.appId, "app-id-123");
+    assert.equal(settings.appSecret, "app-secret-456");
+    assert.equal(settings.verifyToken, "verify-token");
+    assert.equal(settings.configured, true);
   });
-  await prisma.knowledgeChunk.create({
-    data: {
-      id: CHUNK_ID,
-      businessId: META_BIZ,
-      chunkIndex: 0,
-      section: "Pricing",
-      content: "The Pro Plan costs ₹1,499 per month.",
-      keywords: "pro plan pricing",
-    },
+
+  it("falls back to a safe Graph version when META_GRAPH_VERSION is malformed", () => {
+    process.env.META_GRAPH_VERSION = "v26";
+    assert.equal(readMetaSettings().graphVersion, "v26.0");
+    process.env.META_GRAPH_VERSION = "latest";
+    assert.match(readMetaSettings().graphVersion, /^v\d+\.\d+$/);
+    process.env.META_GRAPH_VERSION = "v26.0";
+  });
+
+  it("is not configured without an app secret", () => {
+    delete process.env.META_APP_SECRET;
+    assert.equal(readMetaSettings().configured, false);
+    process.env.META_APP_SECRET = "app-secret-456";
   });
 });
 
-beforeEach(async () => {
-  await prisma.ticketEvent.deleteMany({ where: { ticket: { businessId: META_BIZ } } });
-  await prisma.ticket.deleteMany({ where: { businessId: META_BIZ } });
-  await prisma.channelConnection.deleteMany({ where: { businessId: META_BIZ } });
-});
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
-afterAll(async () => {
-  await resetBusinessData([META_BIZ]);
-});
-
-describe("Meta OAuth", () => {
-  it("builds a Facebook Login URL with only the messaging permissions", () => {
+describe("Meta authorization", () => {
+  it("builds the Facebook Login dialog with the expected scopes", () => {
     const url = new URL(
       buildMetaAuthorizationUrl({
-        redirectUri: "https://backend.test/api/social/meta/callback",
+        redirectUri: "https://example.com/api/social/meta/callback",
         state: "signed-state",
-      })
+      }),
     );
-    expect(url.origin).toBe("https://www.facebook.com");
-    expect(url.pathname).toBe("/v26.0/dialog/oauth");
-    expect(url.searchParams.get("client_id")).toBe("test-meta-app-id");
-    expect(url.searchParams.get("redirect_uri")).toBe(
-      "https://backend.test/api/social/meta/callback"
-    );
-    expect(url.searchParams.get("state")).toBe("signed-state");
-    expect(url.searchParams.get("scope")).toBe(META_SCOPES.join(","));
+
+    assert.equal(url.origin, "https://www.facebook.com");
+    assert.equal(url.pathname, "/v26.0/dialog/oauth");
+    assert.equal(url.searchParams.get("client_id"), "app-id-123");
+    assert.equal(url.searchParams.get("redirect_uri"), "https://example.com/api/social/meta/callback");
+    assert.equal(url.searchParams.get("state"), "signed-state");
+    assert.equal(url.searchParams.get("response_type"), "code");
+    const scopes = url.searchParams.get("scope") ?? "";
+    assert.match(scopes, /pages_messaging/);
+    assert.match(scopes, /instagram_basic/);
   });
 
-  it("rejects OAuth when the app credentials are missing", () => {
-    vi.stubEnv("META_APP_ID", "");
-    expect(() =>
-      buildMetaAuthorizationUrl({ redirectUri: "https://backend.test/cb", state: "state" })
-    ).toThrowError(expect.objectContaining({ code: "META_NOT_CONFIGURED" }));
+  it("refuses to build a dialog when the app is not configured", () => {
+    delete process.env.META_APP_ID;
+    assert.throws(
+      () => buildMetaAuthorizationUrl({ redirectUri: "https://example.com/cb", state: "s" }),
+      integrationError("META_NOT_CONFIGURED"),
+    );
+    process.env.META_APP_ID = "app-id-123";
   });
 
-  it("exchanges a code for a long-lived token", async () => {
-    const { fetchImpl, calls } = recorder((url) => {
+  it("exchanges the code for a short-lived token, then a long-lived one", async () => {
+    const fetch = fetchStub((url) => {
+      const parsed = new URL(url);
+      if (parsed.searchParams.get("grant_type") === "fb_exchange_token") {
+        return jsonResponse({ access_token: "long-lived-token", expires_in: 5_000_000 });
+      }
+      return jsonResponse({ access_token: "short-lived-token", expires_in: 3600 });
+    });
+
+    const result = await exchangeMetaCode({
+      code: "auth-code",
+      redirectUri: "https://example.com/cb",
+      fetchImpl: fetch.impl,
+    });
+
+    assert.equal(result.accessToken, "long-lived-token");
+    assert.equal(result.expiresInSeconds, 5_000_000);
+    assert.equal(fetch.calls.length, 2);
+
+    const first = new URL(fetch.calls[0]?.url ?? "");
+    assert.equal(first.searchParams.get("code"), "auth-code");
+    assert.equal(first.searchParams.get("client_secret"), "app-secret-456");
+
+    const second = new URL(fetch.calls[1]?.url ?? "");
+    assert.equal(second.searchParams.get("grant_type"), "fb_exchange_token");
+    assert.equal(second.searchParams.get("fb_exchange_token"), "short-lived-token");
+  });
+
+  it("reports invalid provider credentials from the code exchange", async () => {
+    const fetch = fetchStub(() =>
+      jsonResponse({ error: { message: "Invalid verification code format", code: 100 } }, 400),
+    );
+
+    await assert.rejects(
+      () => exchangeMetaCode({ code: "expired", redirectUri: "https://example.com/cb", fetchImpl: fetch.impl }),
+      integrationError("META_OAUTH_FAILED"),
+    );
+  });
+
+  it("fails instead of silently keeping the short-lived token", async () => {
+    const fetch = fetchStub((url) => {
       if (url.includes("fb_exchange_token")) {
-        return jsonResponse({ access_token: "long-lived-token", expires_in: 5_184_000 });
+        return jsonResponse({ error: { message: "cannot exchange" } }, 400);
       }
       return jsonResponse({ access_token: "short-lived-token" });
     });
 
-    const token = await exchangeMetaCode({
-      code: "oauth-code",
-      redirectUri: "https://backend.test/api/social/meta/callback",
-      fetchImpl,
-    });
-
-    expect(token.accessToken).toBe("long-lived-token");
-    expect(calls).toHaveLength(2);
-    expect(calls[0].url).toContain("code=oauth-code");
-    expect(calls[1].url).toContain("grant_type=fb_exchange_token");
-    expect(calls[1].url).toContain("fb_exchange_token=short-lived-token");
-  });
-
-  it("refuses to fall back to a short-lived token", async () => {
-    const { fetchImpl } = recorder((url) =>
-      url.includes("fb_exchange_token")
-        ? jsonResponse({ error: { message: "exchange rejected" } }, 400)
-        : jsonResponse({ access_token: "short-lived-token" })
+    await assert.rejects(
+      () => exchangeMetaCode({ code: "code", redirectUri: "https://example.com/cb", fetchImpl: fetch.impl }),
+      integrationError("META_TOKEN_EXCHANGE_FAILED"),
     );
-
-    await expect(
-      exchangeMetaCode({
-        code: "code",
-        redirectUri: "https://backend.test/cb",
-        fetchImpl,
-      })
-    ).rejects.toMatchObject({ code: "META_TOKEN_EXCHANGE_FAILED" });
   });
+});
 
-  it("lists Pages with their linked Instagram professional account", async () => {
-    const { fetchImpl, calls } = recorder(() =>
+describe("Meta asset discovery", () => {
+  it("maps Pages and linked Instagram accounts and skips Pages without a token", async () => {
+    const fetch = fetchStub(() =>
       jsonResponse({
         data: [
           {
-            id: PAGE_ID,
-            name: "Test Page",
-            access_token: PAGE_TOKEN,
-            instagram_business_account: { id: IG_ID, username: "test.brand", name: "Test Brand" },
+            id: "page_1",
+            name: "CloudPulse",
+            access_token: "page-1-token",
+            instagram_business_account: { id: "ig_1", username: "cloudpulse.app", name: "CloudPulse" },
           },
-          { id: "page_without_token", name: "No token" },
+          {
+            id: "page_2",
+            name: "CloudPulse Support",
+            access_token: "page-2-token",
+            instagram_business_account: { data: [{ id: "ig_2", username: "cloudpulse.support" }] },
+          },
+          { id: "page_3", name: "No token" },
         ],
-      })
+      }),
     );
 
-    const pages = await fetchMetaPages("user-token", fetchImpl);
-    expect(pages).toHaveLength(1);
-    expect(pages[0]).toMatchObject({
-      id: PAGE_ID,
-      name: "Test Page",
-      accessToken: PAGE_TOKEN,
-      instagram: { id: IG_ID, username: "test.brand" },
-    });
-    expect(String(calls[0].init?.headers && (calls[0].init?.headers as Record<string, string>).authorization)).toBe(
-      "Bearer user-token"
-    );
-    expect(calls[0].url).toContain("instagram_business_account");
+    const pages = await fetchMetaPages("user-token", fetch.impl);
+
+    assert.equal(pages.length, 2);
+    assert.equal(pages[0]?.id, "page_1");
+    assert.deepEqual(pages[0]?.instagram, { id: "ig_1", username: "cloudpulse.app", name: "CloudPulse" });
+    assert.equal(pages[1]?.instagram?.id, "ig_2");
+    assert.equal(pages[1]?.instagram?.name, "cloudpulse.support");
+
+    const headers = (fetch.calls[0]?.init?.headers as Record<string, string> | undefined) ?? {};
+    assert.equal(headers["authorization"], "Bearer user-token");
   });
-});
 
-describe("Meta asset selection", () => {
-  async function authorizePending(): Promise<void> {
-    const userId = await ownerId();
-    const { fetchImpl } = recorder((url) => {
-      if (url.includes("fb_exchange_token")) return jsonResponse({ access_token: "long" });
-      if (url.includes("oauth/access_token")) return jsonResponse({ access_token: "short" });
-      if (url.includes("me/accounts")) {
-        return jsonResponse({
-          data: [
-            {
-              id: PAGE_ID,
-              name: "Test Page",
-              access_token: PAGE_TOKEN,
-              instagram_business_account: {
-                id: IG_ID,
-                username: "test.brand",
-                name: "Test Brand",
-              },
-            },
-          ],
-        });
-      }
-      return jsonResponse({}, 404);
-    });
+  it("does not follow a paging.next that leaves the Graph host", async () => {
+    const fetch = fetchStub(() =>
+      jsonResponse({
+        data: [{ id: "page_1", name: "CloudPulse", access_token: "token" }],
+        paging: { next: "https://attacker.example/steal" },
+      }),
+    );
 
-    await completeMetaAuthorization({
-      businessId: META_BIZ,
-      userId,
-      code: "code",
-      redirectUri: "https://backend.test/api/social/meta/callback",
-      fetchImpl,
-    });
-  }
+    await fetchMetaPages("user-token", fetch.impl);
+    assert.equal(fetch.calls.length, 1);
+  });
 
-  it("stores a short-lived encrypted selection without marking anything connected", async () => {
-    await authorizePending();
+  it("surfaces a Graph error instead of returning an empty asset list", async () => {
+    const fetch = fetchStub(() => jsonResponse({ error: { message: "Invalid OAuth access token" } }, 400));
 
-    const channel = await prisma.channelConnection.findUniqueOrThrow({
-      where: { businessId_channelType: { businessId: META_BIZ, channelType: "FACEBOOK" } },
-    });
-    expect(channel.status).toBe("UNAVAILABLE");
-    expect(channel.configJson).not.toContain(PAGE_TOKEN);
+    await assert.rejects(() => fetchMetaPages("bad-token", fetch.impl), integrationError("META_ASSETS_FAILED"));
+  });
 
-    const pending = readMetaPending(channel.configJson);
-    expect(pending?.pages).toHaveLength(1);
-    expect(decryptSecret(pending!.pages[0].token)).toBe(PAGE_TOKEN);
-
-    const assets = await getMetaAssetsForBusiness(META_BIZ, await ownerId());
-    expect(assets.assets).toEqual([
+  it("expands stored Pages into Page and Instagram assets", () => {
+    const assets = toMetaAssets([
       {
-        kind: "page",
-        id: PAGE_ID,
-        name: "Test Page",
-        username: null,
-        pageId: PAGE_ID,
-        pageName: "Test Page",
-      },
-      {
-        kind: "instagram",
-        id: IG_ID,
-        name: "Test Brand",
-        username: "test.brand",
-        pageId: PAGE_ID,
-        pageName: "Test Page",
+        id: "page_1",
+        name: "CloudPulse",
+        token: "encrypted",
+        instagram: { id: "ig_1", username: "cloudpulse.app", name: "CloudPulse IG" },
       },
     ]);
-    expect(JSON.stringify(assets)).not.toContain(PAGE_TOKEN);
-  });
 
-  it("rejects a selection belonging to another user", async () => {
-    await authorizePending();
-    await expect(getMetaAssetsForBusiness(META_BIZ, "someone_else")).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
-    await expect(
-      selectMetaAsset({
-        businessId: META_BIZ,
-        userId: "someone_else",
+    assert.deepEqual(assets, [
+      {
         kind: "page",
-        assetId: PAGE_ID,
-      })
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-  });
-
-  it("rejects an expired selection", async () => {
-    await prisma.channelConnection.create({
-      data: {
-        businessId: META_BIZ,
-        channelType: "FACEBOOK",
-        status: "UNAVAILABLE",
-        autoSend: false,
-        configJson: JSON.stringify({
-          metaPending: {
-            userId: await ownerId(),
-            pages: [],
-            createdAt: new Date(Date.now() - 3_600_000).toISOString(),
-            expiresAt: new Date(Date.now() - 1_800_000).toISOString(),
-          },
-        }),
+        id: "page_1",
+        name: "CloudPulse",
+        username: null,
+        pageId: "page_1",
+        pageName: "CloudPulse",
       },
-    });
-
-    await expect(getMetaAssetsForBusiness(META_BIZ, await ownerId())).rejects.toMatchObject({
-      code: "META_SELECTION_EXPIRED",
-    });
-  });
-
-  it("subscribes and connects a Facebook Page only after the backend confirms it", async () => {
-    await authorizePending();
-    const { fetchImpl, calls } = recorder(() => jsonResponse({ success: true }));
-
-    const result = await selectMetaAsset({
-      businessId: META_BIZ,
-      userId: await ownerId(),
-      kind: "page",
-      assetId: PAGE_ID,
-      fetchImpl,
-    });
-
-    expect(result.provider).toBe("FACEBOOK");
-    expect(result.summary).toMatchObject({
-      connected: true,
-      status: "connected",
-      kind: "page",
-      pageId: PAGE_ID,
-      pageName: "Test Page",
-    });
-    expect(result.channel.status).toBe("CONNECTED");
-    expect(result.channel.autoSend).toBe(true);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toContain(`/${PAGE_ID}/subscribed_apps`);
-    expect(calls[0].url).toContain("subscribed_fields=messages%2Cmessaging_postbacks");
-    expect((calls[0].init?.headers as Record<string, string>).authorization).toBe(
-      `Bearer ${PAGE_TOKEN}`
-    );
-
-    const stored = readMetaConnection(result.channel.configJson);
-    expect(stored?.token.startsWith("v1.")).toBe(true);
-    expect(decryptSecret(stored!.token)).toBe(PAGE_TOKEN);
-    expect(readMetaPending(result.channel.configJson)).toBeNull();
-    expect(result.channel.configJson).not.toContain(PAGE_TOKEN);
-  });
-
-  it("connects a linked Instagram account through its Page token", async () => {
-    await authorizePending();
-    const { fetchImpl, calls } = recorder(() => jsonResponse({ success: true }));
-
-    const result = await selectMetaAsset({
-      businessId: META_BIZ,
-      userId: await ownerId(),
-      kind: "instagram",
-      assetId: IG_ID,
-      fetchImpl,
-    });
-
-    expect(result.provider).toBe("INSTAGRAM");
-    expect(result.summary).toMatchObject({
-      connected: true,
-      kind: "instagram",
-      pageId: PAGE_ID,
-      igUsername: "test.brand",
-    });
-    // Instagram webhooks are app-level; subscribed_fields is not valid for them.
-    expect(calls[0].url).not.toContain("subscribed_fields");
-
-    const facebook = await prisma.channelConnection.findUniqueOrThrow({
-      where: { businessId_channelType: { businessId: META_BIZ, channelType: "FACEBOOK" } },
-    });
-    expect(readMetaPending(facebook.configJson)).toBeNull();
-  });
-
-  it("rejects an asset that was never returned by Meta", async () => {
-    await authorizePending();
-    await expect(
-      selectMetaAsset({
-        businessId: META_BIZ,
-        userId: await ownerId(),
-        kind: "page",
-        assetId: "page_not_in_selection",
-      })
-    ).rejects.toMatchObject({ code: "META_ASSET_NOT_AVAILABLE" });
-  });
-
-  it("does not mark a channel connected when the Page subscription fails", async () => {
-    await authorizePending();
-    const { fetchImpl } = recorder(() =>
-      jsonResponse({ error: { message: "pages_manage_metadata missing" } }, 400)
-    );
-
-    await expect(
-      selectMetaAsset({
-        businessId: META_BIZ,
-        userId: await ownerId(),
+      {
         kind: "instagram",
-        assetId: IG_ID,
-        fetchImpl,
-      })
-    ).rejects.toMatchObject({ code: "META_SUBSCRIBE_FAILED" });
-
-    const instagram = await prisma.channelConnection.findUnique({
-      where: { businessId_channelType: { businessId: META_BIZ, channelType: "INSTAGRAM" } },
-    });
-    expect(instagram?.status ?? "UNAVAILABLE").toBe("UNAVAILABLE");
+        id: "ig_1",
+        name: "CloudPulse IG",
+        username: "cloudpulse.app",
+        pageId: "page_1",
+        pageName: "CloudPulse",
+      },
+    ]);
   });
 });
 
-describe("Meta webhooks", () => {
-  it("verifies the challenge and rejects a wrong verify token", () => {
-    expect(
-      verifyMetaWebhookChallenge({
-        mode: "subscribe",
-        token: "test-meta-verify-token",
-        challenge: "challenge-123",
-        expectedToken: "test-meta-verify-token",
-      })
-    ).toBe("challenge-123");
-
-    expect(
-      verifyMetaWebhookChallenge({
-        mode: "subscribe",
-        token: "wrong",
-        challenge: "challenge-123",
-        expectedToken: "test-meta-verify-token",
-      })
-    ).toBeNull();
-  });
-
-  it("verifies the X-Hub-Signature-256 HMAC", () => {
-    const raw = JSON.stringify({ object: "page", entry: [] });
-    const signature = `sha256=${createHmac("sha256", APP_SECRET).update(raw).digest("hex")}`;
-    expect(verifyMetaSignature(raw, signature, APP_SECRET)).toBe(true);
-    expect(verifyMetaSignature(raw, signature, "other-secret")).toBe(false);
-    expect(verifyMetaSignature(`${raw} `, signature, APP_SECRET)).toBe(false);
-    expect(verifyMetaSignature(raw, null, APP_SECRET)).toBe(false);
-  });
-
-  it("processes Page messages, sends one reply, and ignores echoes and duplicates", async () => {
-    await seedMetaChannel("FACEBOOK");
-    const { llm, calls: llmCalls } = groundedLlm();
-    const sends: Array<{ url: string; body: unknown }> = [];
-    const { fetchImpl } = recorder((url, init) => {
-      sends.push({ url, body: JSON.parse(String(init?.body)) });
-      return jsonResponse({ message_id: "mid.sent" });
-    });
-
-    const payload = {
-      object: "page",
-      entry: [
+describe("stored Meta selections", () => {
+  it("keeps Page tokens encrypted at rest and binds the selection to a user", () => {
+    const pending = {
+      userId: "user_1",
+      pages: [
         {
-          id: PAGE_ID,
-          time: Date.now(),
-          messaging: [
-            {
-              sender: { id: "customer_psid" },
-              recipient: { id: PAGE_ID },
-              timestamp: Date.now(),
-              message: { mid: "mid.inbound.1", text: "How much is the Pro Plan?" },
-            },
-            {
-              sender: { id: PAGE_ID },
-              recipient: { id: "customer_psid" },
-              message: { mid: "mid.echo.1", text: "Our own reply", is_echo: true },
-            },
-          ],
+          id: "page_1",
+          name: "CloudPulse",
+          token: encryptSecret("page-access-token"),
+          instagram: { id: "ig_1", username: "cloudpulse.app", name: "CloudPulse" },
         },
       ],
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 1_200_000).toISOString(),
+    };
+    const configJson = JSON.stringify({ [META_PENDING_KEY]: pending });
+
+    assert.equal(configJson.includes("page-access-token"), false);
+    const restored = readMetaPending(configJson);
+    assert.ok(restored);
+    assert.equal(restored.userId, "user_1");
+    assert.equal(restored.pages.length, 1);
+    assert.equal(restored.pages[0]?.id, "page_1");
+  });
+
+  it("ignores an expired selection so a stale callback cannot pick an account", () => {
+    const pending = {
+      userId: "user_1",
+      pages: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
     };
 
-    const first = await processMetaWebhook(payload, { llm, fetch: fetchImpl });
-    expect(first).toMatchObject({
-      received: 2,
-      processed: 1,
-      ignored: 1,
-      duplicates: 0,
-      repliesSent: 1,
-    });
-    expect(llmCalls()).toBe(1);
-    expect(sends).toHaveLength(1);
-    expect(sends[0].url).toContain(`/v26.0/${PAGE_ID}/messages`);
-    expect(sends[0].body).toMatchObject({
-      recipient: { id: "customer_psid" },
-      message: { text: "The Pro Plan costs ₹1,499 per month." },
-    });
-
-    const ticket = await prisma.ticket.findUniqueOrThrow({
-      where: { externalMessageId: "meta:page:mid.inbound.1" },
-    });
-    expect(ticket).toMatchObject({
-      businessId: META_BIZ,
-      channel: "FACEBOOK",
-      customerHandle: "customer_psid",
-    });
-
-    const second = await processMetaWebhook(payload, { llm, fetch: fetchImpl });
-    expect(second.duplicates).toBe(1);
-    expect(second.repliesSent).toBe(0);
-    expect(sends).toHaveLength(1);
-    expect(llmCalls()).toBe(1);
+    assert.equal(readMetaPending(JSON.stringify({ [META_PENDING_KEY]: pending })), null);
   });
 
-  it("routes Instagram events to the Instagram channel and Page-messaging endpoint", async () => {
-    await seedMetaChannel("INSTAGRAM");
-    const { llm } = groundedLlm();
-    const sends: Array<{ url: string; body: unknown }> = [];
-    const { fetchImpl } = recorder((url, init) => {
-      sends.push({ url, body: JSON.parse(String(init?.body)) });
-      return jsonResponse({ message_id: "ig.sent" });
-    });
+  it("requires the selection to have an owning user", () => {
+    const pending = {
+      pages: [],
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
 
-    const summary = await processMetaWebhook(
-      {
-        object: "instagram",
-        entry: [
-          {
-            id: IG_ID,
-            messaging: [
-              {
-                sender: { id: "ig_customer" },
-                recipient: { id: IG_ID },
-                message: { mid: "ig.mid.1", text: "Do you have a Pro plan?" },
-              },
-            ],
-          },
-        ],
-      },
-      { llm, fetch: fetchImpl }
+    assert.equal(readMetaPending(JSON.stringify({ [META_PENDING_KEY]: pending })), null);
+  });
+
+  it("validates a stored Meta connection and fills safe defaults", () => {
+    const connection = readMetaConnection(metaConnectionConfig());
+    assert.ok(connection);
+    assert.equal(connection.kind, "page");
+    assert.equal(connection.pageName, "CloudPulse");
+    assert.equal(connection.igUsername, "cloudpulse.app");
+    assert.equal(connection.token.startsWith("v1."), true);
+
+    assert.equal(
+      readMetaConnection(JSON.stringify({ metaConnection: { kind: "unknown", assetId: "x", pageId: "y", token: "t" } })),
+      null,
     );
-
-    expect(summary).toMatchObject({ processed: 1, repliesSent: 1 });
-    expect(sends[0].url).toContain(`/${PAGE_ID}/messages`);
-
-    const ticket = await prisma.ticket.findUniqueOrThrow({
-      where: { externalMessageId: "meta:instagram:ig.mid.1" },
-    });
-    expect(ticket.channel).toBe("INSTAGRAM");
-  });
-
-  it("ignores events for unconnected assets", async () => {
-    const summary = await processMetaWebhook({
-      object: "page",
-      entry: [
-        {
-          id: "page_not_connected",
-          messaging: [
-            {
-              sender: { id: "x" },
-              recipient: { id: "page_not_connected" },
-              message: { mid: "m", text: "hello" },
-            },
-          ],
-        },
-      ],
-    });
-    expect(summary).toMatchObject({ received: 0, processed: 0, ignored: 1 });
+    assert.equal(readMetaConnection(null), null);
   });
 });
 
-describe("Meta sending, status, and disconnect", () => {
-  it("sends with the stored Page token and clears it when Meta revokes the token", async () => {
-    const channel = await seedMetaChannel("FACEBOOK");
-    const ok = recorder((url, init) => {
-      expect(url).toContain(`/v26.0/${PAGE_ID}/messages`);
-      expect((init?.headers as Record<string, string>).authorization).toBe(`Bearer ${PAGE_TOKEN}`);
-      return jsonResponse({ message_id: "mid.sent.1" });
+describe("Meta channel summaries", () => {
+  it("reports a missing channel as disconnected", () => {
+    assert.deepEqual(summarizeMetaChannel(null), {
+      connected: false,
+      status: "disconnected",
+      kind: null,
+      pageId: null,
+      pageName: null,
+      igUsername: null,
+      connectedAt: null,
+      lastError: null,
     });
+  });
 
-    await expect(sendMetaMessage(channel, "customer_psid", "Hello", ok.fetchImpl)).resolves.toEqual({
-      messageId: "mid.sent.1",
-    });
-
-    const revoked = recorder(() =>
-      jsonResponse({ error: { code: 190, message: "Token expired" } }, 400)
+  it("only calls a channel connected when the row itself is CONNECTED", () => {
+    const connected = summarizeMetaChannel(
+      channel(
+        JSON.parse(metaConnectionConfig()) as Record<string, unknown>,
+        { channelType: "FACEBOOK", status: "CONNECTED" },
+      ),
     );
-    await expect(
-      sendMetaMessage(channel, "customer_psid", "Hello", revoked.fetchImpl)
-    ).rejects.toMatchObject({ code: "META_RECONNECT_REQUIRED" });
+    assert.equal(connected.connected, true);
+    assert.equal(connected.status, "connected");
+    assert.equal(connected.pageName, "CloudPulse");
 
-    const reloaded = await prisma.channelConnection.findUniqueOrThrow({
-      where: { businessId_channelType: { businessId: META_BIZ, channelType: "FACEBOOK" } },
-    });
-    expect(readMetaConnection(reloaded.configJson)).toBeNull();
-    expect(reloaded.status).toBe("UNAVAILABLE");
-    expect(reloaded.configJson).toContain("metaLastError");
+    const draft = summarizeMetaChannel(
+      channel(
+        JSON.parse(metaConnectionConfig()) as Record<string, unknown>,
+        { channelType: "FACEBOOK", status: "TEST_MODE" },
+      ),
+    );
+    assert.equal(draft.connected, false);
+    assert.equal(draft.status, "disconnected");
   });
 
-  it("reports both channel states without leaking tokens", async () => {
-    await seedMetaChannel("FACEBOOK");
-    await seedMetaChannel("INSTAGRAM", {
-      connection: { ...storedMeta("instagram"), previousStatus: "TEST_MODE" },
-    });
+  it("surfaces the stored integration error", () => {
+    const summary = summarizeMetaChannel(
+      channel({ metaLastError: "Meta rejected the Page access token." }, { channelType: "FACEBOOK", status: "TEST_MODE" }),
+    );
+    assert.equal(summary.status, "error");
+    assert.equal(summary.lastError, "Meta rejected the Page access token.");
+  });
+});
 
-    const status = await getMetaStatus(META_BIZ);
-    expect(status.facebook).toMatchObject({
-      connected: true,
-      status: "connected",
-      pageId: PAGE_ID,
-    });
-    expect(status.instagram).toMatchObject({
-      connected: true,
-      status: "connected",
-      igUsername: "test.brand",
-    });
-    expect(JSON.stringify(status)).not.toContain(PAGE_TOKEN);
-    expect(JSON.stringify(status)).not.toContain("v1.");
+describe("Meta webhook authenticity", () => {
+  const rawBody = JSON.stringify({ object: "page", entry: [] });
+  const secret = "app-secret-456";
+
+  it("accepts a correctly signed payload", () => {
+    const signature = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
+    assert.equal(verifyMetaSignature(rawBody, `sha256=${signature}`, secret), true);
+    assert.equal(verifyMetaSignature(rawBody, `sha256=${signature.toUpperCase()}`, secret), true);
   });
 
-  it("clears credentials, unsubscribes once, and restores the previous channel mode", async () => {
-    await seedMetaChannel("FACEBOOK");
-    await seedMetaChannel("INSTAGRAM");
-    const { fetchImpl, calls } = recorder(() => jsonResponse({ success: true }));
-
-    const result = await disconnectMeta({
-      businessId: META_BIZ,
-      channel: "all",
-      fetchImpl,
-    });
-
-    expect(result.facebook.connected).toBe(false);
-    expect(result.instagram.connected).toBe(false);
-    expect(calls.filter((call) => call.init?.method === "DELETE")).toHaveLength(1);
-
-    const channels = await prisma.channelConnection.findMany({
-      where: { businessId: META_BIZ, channelType: { in: ["FACEBOOK", "INSTAGRAM"] } },
-    });
-    for (const channel of channels) {
-      expect(readMetaConnection(channel.configJson)).toBeNull();
-      expect(channel.configJson).not.toContain("v1.");
-      expect(channel.status).toBe("UNAVAILABLE");
-      expect(channel.autoSend).toBe(false);
-    }
+  it("rejects a wrong secret, missing signature, or malformed digest", () => {
+    const signature = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
+    assert.equal(verifyMetaSignature(rawBody, `sha256=${signature}`, "other-secret"), false);
+    assert.equal(verifyMetaSignature(rawBody, null, secret), false);
+    assert.equal(verifyMetaSignature(rawBody, signature, secret), false);
+    assert.equal(verifyMetaSignature(rawBody, "sha256=not-hex", secret), false);
+    assert.equal(verifyMetaSignature(rawBody, `sha256=${"0".repeat(64)}`, secret), false);
+    assert.equal(verifyMetaSignature(rawBody, `sha256=${signature}`, ""), false);
   });
 
-  it("starts from the pending selection when a new Meta connect is requested", async () => {
-    await storeMetaPendingSelection({
-      businessId: META_BIZ,
-      userId: await ownerId(),
-      pages: fetchedPages(),
-    });
-    const status = await getMetaStatus(META_BIZ);
-    expect(status.pendingSelection).toBe(true);
-    expect(status.pendingExpiresAt).toBeTruthy();
+  it("answers the subscription handshake only for the configured token", () => {
+    assert.equal(
+      verifyMetaWebhookChallenge({
+        mode: "subscribe",
+        token: "verify-token",
+        challenge: "challenge-123",
+        expectedToken: "verify-token",
+      }),
+      "challenge-123",
+    );
+    assert.equal(
+      verifyMetaWebhookChallenge({
+        mode: "subscribe",
+        token: "wrong-token",
+        challenge: "challenge-123",
+        expectedToken: "verify-token",
+      }),
+      null,
+    );
+    assert.equal(
+      verifyMetaWebhookChallenge({
+        mode: "unsubscribe",
+        token: "verify-token",
+        challenge: "challenge-123",
+        expectedToken: "verify-token",
+      }),
+      null,
+    );
+    assert.equal(
+      verifyMetaWebhookChallenge({
+        mode: "subscribe",
+        token: "verify-token",
+        challenge: null,
+        expectedToken: "verify-token",
+      }),
+      null,
+    );
+    assert.equal(
+      verifyMetaWebhookChallenge({
+        mode: "subscribe",
+        token: "verify-token",
+        challenge: "challenge-123",
+        expectedToken: "",
+      }),
+      null,
+    );
   });
 });

@@ -10,18 +10,20 @@
 
 import type { Business, ChannelConnection } from "@prisma/client";
 
-import { ApiError } from "./api";
-import { handleInboundWebhook } from "./channel-webhook";
+import { respondToContact, type InboundContact, type RespondResult } from "../business/service.ts";
+import { prisma } from "../db.ts";
 import {
   ensureChannelConnection,
   isChannelStatus,
   readChannelConfig,
   recordIntegrationError,
   updateChannelConfig,
-} from "./channels";
-import { prisma } from "./db";
-import { decryptSecret, encryptSecret } from "./integration-crypto";
-import type { TriageDependencies } from "./triage";
+} from "./channels.ts";
+import { decryptSecret, encryptSecret } from "./crypto.ts";
+import { IntegrationError } from "./errors.ts";
+
+/** Inbound hand-off, injectable so tests can exercise the flow without the LLM. */
+export type EmailRespond = (contact: InboundContact) => Promise<RespondResult>;
 
 const GMAIL_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -117,7 +119,7 @@ export function buildGmailAuthorizationUrl(input: {
 }): string {
   const settings = readEmailProviderSettings();
   if (!settings.configured) {
-    throw new ApiError(
+    throw new IntegrationError(
       503,
       "EMAIL_NOT_CONFIGURED",
       "Gmail OAuth is not configured. Set EMAIL_GMAIL_CLIENT_ID and EMAIL_GMAIL_CLIENT_SECRET."
@@ -179,11 +181,11 @@ export type GmailTokenResult = {
 export async function exchangeGmailCode(input: {
   code: string;
   redirectUri: string;
-  fetchImpl?: EmailFetch;
+  fetchImpl?: EmailFetch | undefined;
 }): Promise<GmailTokenResult> {
   const settings = readEmailProviderSettings();
   if (!settings.configured) {
-    throw new ApiError(503, "EMAIL_NOT_CONFIGURED", "Gmail OAuth is not configured.");
+    throw new IntegrationError(503, "EMAIL_NOT_CONFIGURED", "Gmail OAuth is not configured.");
   }
 
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -203,7 +205,7 @@ export async function exchangeGmailCode(input: {
   const json = await readJson(response);
 
   if (!response.ok || typeof json.access_token !== "string") {
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "EMAIL_OAUTH_FAILED",
       safeProviderError(json) ?? "Gmail rejected the authorization code."
@@ -232,7 +234,7 @@ export async function fetchGmailProfile(
   const json = await readJson(response);
 
   if (!response.ok || typeof json.emailAddress !== "string") {
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "EMAIL_PROFILE_FAILED",
       safeProviderError(json) ?? "Gmail did not return the connected account profile."
@@ -257,7 +259,7 @@ export type CompleteEmailConnectionInput = {
   userId: string;
   code: string;
   redirectUri: string;
-  fetchImpl?: EmailFetch;
+  fetchImpl?: EmailFetch | undefined;
 };
 
 export async function completeEmailConnection(
@@ -270,7 +272,7 @@ export async function completeEmailConnection(
     select: { id: true },
   });
   if (!business) {
-    throw new ApiError(403, "FORBIDDEN", "You do not have access to this business.");
+    throw new IntegrationError(403, "FORBIDDEN", "You do not have access to this business.");
   }
 
   const channel = await ensureChannelConnection(input.businessId, "GMAIL");
@@ -284,7 +286,7 @@ export async function completeEmailConnection(
 
   const refreshToken = tokens.refreshToken ?? (existing ? decryptSecret(existing.refreshToken) : null);
   if (!refreshToken) {
-    throw new ApiError(
+    throw new IntegrationError(
       400,
       "EMAIL_REFRESH_TOKEN_MISSING",
       "Google did not return a refresh token. Remove the app's access at myaccount.google.com/permissions and connect again."
@@ -345,7 +347,7 @@ export async function getValidGmailAccessToken(
 ): Promise<{ accessToken: string; channel: ChannelConnection }> {
   const connection = readEmailConnection(channel.configJson);
   if (!connection || channel.status !== "CONNECTED") {
-    throw new ApiError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before using this channel.");
+    throw new IntegrationError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before using this channel.");
   }
 
   const expiresAt = connection.accessTokenExpiresAt
@@ -381,13 +383,13 @@ export async function getValidGmailAccessToken(
         channel,
         "Gmail authorization expired or was revoked. Reconnect the email channel."
       );
-      throw new ApiError(
+      throw new IntegrationError(
         401,
         "EMAIL_RECONNECT_REQUIRED",
         "Gmail authorization expired or was revoked. Reconnect the email channel."
       );
     }
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "EMAIL_TOKEN_REFRESH_FAILED",
       safeProviderError(json) ?? "Gmail token refresh failed."
@@ -423,8 +425,8 @@ export type OutboundEmail = {
   to: string;
   subject: string;
   text: string;
-  inReplyTo?: string | null;
-  references?: string | null;
+  inReplyTo?: string | null | undefined;
+  references?: string | null | undefined;
 };
 
 export function buildGmailRawMessage(input: OutboundEmail): string {
@@ -452,9 +454,9 @@ export type SendEmailInput = {
   to: string;
   subject: string;
   text: string;
-  threadId?: string | null;
-  inReplyTo?: string | null;
-  references?: string | null;
+  threadId?: string | null | undefined;
+  inReplyTo?: string | null | undefined;
+  references?: string | null | undefined;
 };
 
 export async function sendGmailMessage(
@@ -464,7 +466,7 @@ export async function sendGmailMessage(
 ): Promise<{ messageId: string; threadId: string | null; channel: ChannelConnection }> {
   const connection = readEmailConnection(channel.configJson);
   if (!connection) {
-    throw new ApiError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before sending mail.");
+    throw new IntegrationError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before sending mail.");
   }
 
   const { accessToken, channel: freshChannel } = await getValidGmailAccessToken(channel, fetchImpl);
@@ -496,13 +498,13 @@ export async function sendGmailMessage(
         freshChannel,
         "Gmail rejected the access token. Reconnect the email channel."
       );
-      throw new ApiError(
+      throw new IntegrationError(
         401,
         "EMAIL_RECONNECT_REQUIRED",
         "Gmail rejected the access token. Reconnect the email channel."
       );
     }
-    throw new ApiError(
+    throw new IntegrationError(
       502,
       "EMAIL_SEND_FAILED",
       safeProviderError(json) ?? "Gmail did not accept the message."
@@ -510,7 +512,7 @@ export async function sendGmailMessage(
   }
 
   if (typeof json.id !== "string") {
-    throw new ApiError(502, "EMAIL_SEND_FAILED", "Gmail did not return a message id.");
+    throw new IntegrationError(502, "EMAIL_SEND_FAILED", "Gmail did not return a message id.");
   }
 
   return {
@@ -529,7 +531,7 @@ export async function sendEmailForBusiness(
     where: { businessId_channelType: { businessId, channelType: "GMAIL" } },
   });
   if (!channel || channel.status !== "CONNECTED" || !readEmailConnection(channel.configJson)) {
-    throw new ApiError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before sending mail.");
+    throw new IntegrationError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before sending mail.");
   }
 
   const result = await sendGmailMessage(channel, input, fetchImpl);
@@ -543,7 +545,7 @@ export async function disconnectEmail(
   const channel = await ensureChannelConnection(businessId, "GMAIL");
   const connection = readEmailConnection(channel.configJson);
   if (!connection) {
-    throw new ApiError(404, "EMAIL_NOT_CONNECTED", "No email account is connected for this business.");
+    throw new IntegrationError(404, "EMAIL_NOT_CONNECTED", "No email account is connected for this business.");
   }
 
   // Best effort: revoking is recommended, but a revoke failure must not leave
@@ -617,9 +619,9 @@ type GmailPart = {
 export type GmailMessagePayload = {
   id: string;
   threadId: string;
-  labelIds?: string[];
-  snippet?: string;
-  payload?: GmailPart;
+  labelIds?: string[] | undefined;
+  snippet?: string | undefined;
+  payload?: GmailPart | undefined;
 };
 
 function decodeBase64Url(value: string): string {
@@ -655,7 +657,7 @@ function extractPlainText(part: GmailPart | undefined): string {
 
 export function parseEmailAddress(value: string): { email: string; name: string } {
   const angle = value.match(/<([^>]+)>/);
-  const email = (angle ? angle[1] : value).trim().toLowerCase();
+  const email = (angle?.[1] ?? value).trim().toLowerCase();
   const name = angle ? value.replace(angle[0], "").replace(/^"|"$/g, "").trim() : "";
   return { email, name };
 }
@@ -697,7 +699,7 @@ async function markGmailMessageRead(
 
 export type EmailPollDependencies = {
   fetch?: EmailFetch;
-  llm?: TriageDependencies["llm"];
+  respond?: EmailRespond;
   maxResults?: number;
 };
 
@@ -710,7 +712,7 @@ export async function processGmailMessage(
   const fetchImpl = deps.fetch ?? fetch;
   const connection = readEmailConnection(channel.configJson);
   if (!connection) {
-    throw new ApiError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before polling mail.");
+    throw new IntegrationError(409, "EMAIL_NOT_CONNECTED", "Connect an email account before polling mail.");
   }
 
   const headers = message.payload?.headers;
@@ -744,22 +746,19 @@ export async function processGmailMessage(
     return { ...base, skipped: "empty_body" };
   }
 
-  const outcome = await handleInboundWebhook(
-    {
-      business,
-      provider: "GMAIL",
-      externalMessageId: `gmail:${message.id}`,
-      customerName: sender.name || sender.email,
-      customerHandle: sender.email,
-      message: text,
-    },
-    { llm: deps.llm }
-  );
+  const outcome = await (deps.respond ?? respondToContact)({
+    business,
+    channel: "GMAIL",
+    externalMessageId: `gmail:${message.id}`,
+    customerName: sender.name || sender.email,
+    customerHandle: sender.email,
+    query: text,
+  });
 
   let replySent = false;
   let replyError: string | null = null;
 
-  if (!outcome.duplicate && outcome.result.shouldAutoSend && outcome.result.answer.trim()) {
+  if (!outcome.duplicate && outcome.shouldAutoSend && outcome.answer.trim()) {
     try {
       await sendGmailMessage(
         channel,
@@ -768,7 +767,7 @@ export async function processGmailMessage(
           subject: subject.toLowerCase().startsWith("re:")
             ? subject
             : `Re: ${subject || "Your message"}`,
-          text: outcome.result.answer,
+          text: outcome.answer,
           threadId: message.threadId,
           inReplyTo: providerMessageIdHeader || null,
           references: [references, providerMessageIdHeader].filter(Boolean).join(" ") || null,
@@ -777,10 +776,10 @@ export async function processGmailMessage(
       );
       replySent = true;
     } catch (error) {
-      replyError = error instanceof ApiError ? error.code : "EMAIL_SEND_FAILED";
+      replyError = error instanceof IntegrationError ? error.reason : "EMAIL_SEND_FAILED";
       console.error("[email] auto-reply failed", {
         businessId: business.id,
-        ticketId: outcome.result.ticketId,
+        ticketId: outcome.ticketId,
         error: error instanceof Error ? error.message : error,
       });
     }
@@ -793,7 +792,7 @@ export async function processGmailMessage(
   return {
     messageId: message.id,
     duplicate: outcome.duplicate,
-    ticketId: outcome.result.ticketId,
+    ticketId: outcome.ticketId,
     replySent,
     replyError,
     skipped: null,
@@ -900,7 +899,7 @@ export async function pollGmailChannel(
       if (result.replySent) summary.repliesSent += 1;
       if (result.replyError) summary.errors.push(result.replyError);
     } catch (error) {
-      summary.errors.push(error instanceof ApiError ? error.code : "EMAIL_PROCESS_FAILED");
+      summary.errors.push(error instanceof IntegrationError ? error.reason : "EMAIL_PROCESS_FAILED");
       console.error("[email] poll processing failed", {
         businessId: channel.businessId,
         messageId: id,
@@ -935,7 +934,7 @@ export async function pollConnectedEmailInboxes(
         duplicates: 0,
         skipped: 0,
         repliesSent: 0,
-        errors: [error instanceof ApiError ? error.code : "EMAIL_POLL_FAILED"],
+        errors: [error instanceof IntegrationError ? error.reason : "EMAIL_POLL_FAILED"],
       });
       await recordIntegrationError(channel.businessId, "GMAIL", EMAIL_ERROR_KEY, message);
       console.error("[email] business poll failed", {

@@ -1,21 +1,20 @@
-import { z } from "zod";
-
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
-import { startBaileysConnection } from "@/lib/baileys";
-import { resolveOwnedWhatsappChannel } from "@/lib/whatsapp-access";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
+import { startBaileysConnection } from "../../../../../server/integrations/baileys.ts";
+import { resolveOwnedWhatsappChannel } from "../../../../../server/integrations/whatsapp-access.ts";
 import {
   connectionResponse,
   createWhatsappConnectionId,
   readWhatsappConnectionId,
   saveWhatsappSnapshot,
-} from "@/lib/whatsapp";
+} from "../../../../../server/integrations/whatsapp.ts";
 
 export const dynamic = "force-dynamic";
-
-const connectSchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-});
 
 // Owner-initiated: verifies ownership, reuses the business's existing
 // connectionId (or mints one), asks the local service for a socket, and
@@ -23,8 +22,9 @@ const connectSchema = z.object({
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = connectSchema.parse(await parseJsonBody(request));
-    const owned = await resolveOwnedWhatsappChannel(user.id, body.businessId);
+    const body = await readJson(request);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    const owned = await resolveOwnedWhatsappChannel(user.id, businessId);
     const { business } = owned;
     let channel = owned.channel;
 
@@ -40,8 +40,8 @@ export async function POST(request: Request) {
     const snapshot = await startBaileysConnection(connectionId, business.id);
     const updated = await saveWhatsappSnapshot(channel, snapshot);
 
-    return jsonOk(connectionResponse(updated, snapshot));
+    return NextResponse.json(connectionResponse(updated, snapshot));
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

@@ -1,42 +1,65 @@
-import { z } from "zod";
-
-import { jsonOk, parseJsonBody, toErrorResponse } from "@/lib/api";
-import { assertBusinessOwnership, requireUser } from "@/lib/auth";
-import { sendEmailForBusiness } from "@/lib/email";
+import { NextResponse } from "next/server";
+import {
+  errorResponse,
+  loadOwnedBusiness,
+  readJson,
+  requireString,
+  requireUser,
+} from "../../../../../server/auth/tenant.ts";
+import { sendEmailForBusiness } from "../../../../../server/integrations/email.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
 
 export const dynamic = "force-dynamic";
 
 const headerPattern = /^[^\r\n]{1,400}$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const sendSchema = z.object({
-  businessId: z.string().trim().min(1, "businessId is required."),
-  to: z.string().trim().toLowerCase().email("A valid recipient email is required."),
-  subject: z.string().trim().min(1, "Subject is required.").max(200).regex(headerPattern),
-  text: z.string().trim().min(1, "Message text is required.").max(20_000),
-  threadId: z.string().trim().min(1).max(200).optional(),
-  inReplyTo: z.string().trim().min(1).max(400).regex(headerPattern).optional(),
-  references: z.string().trim().min(1).max(2000).regex(headerPattern).optional(),
-});
+function optionalHeader(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !headerPattern.test(value.trim())) {
+    throw new IntegrationError(400, "VALIDATION_ERROR", `field "${key}" is not a valid header value`);
+  }
+  return value.trim();
+}
 
 // Owner-initiated send (testing, manual follow-up). Agent replies use the same
 // service from the inbound pipeline.
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    const body = sendSchema.parse(await parseJsonBody(request));
-    await assertBusinessOwnership(user.id, body.businessId);
+    const body = await readJson(request);
+    const businessId = requireString(body, "businessId", { max: 100 });
+    await loadOwnedBusiness(user.id, businessId);
 
-    const result = await sendEmailForBusiness(body.businessId, {
-      to: body.to,
-      subject: body.subject,
-      text: body.text,
-      threadId: body.threadId,
-      inReplyTo: body.inReplyTo,
-      references: body.references,
+    const to = requireString(body, "to", { max: 320 }).toLowerCase();
+    if (!emailPattern.test(to)) {
+      throw new IntegrationError(400, "VALIDATION_ERROR", "A valid recipient email is required.");
+    }
+
+    const subject = requireString(body, "subject", { max: 200 });
+    if (!headerPattern.test(subject)) {
+      throw new IntegrationError(400, "VALIDATION_ERROR", "Subject must be a single line.");
+    }
+    const text = requireString(body, "text", { max: 20_000 });
+
+    const threadIdValue = body.threadId;
+    const threadId =
+      typeof threadIdValue === "string" && threadIdValue.trim()
+        ? threadIdValue.trim().slice(0, 200)
+        : undefined;
+
+    const result = await sendEmailForBusiness(businessId, {
+      to,
+      subject,
+      text,
+      threadId,
+      inReplyTo: optionalHeader(body, "inReplyTo"),
+      references: optionalHeader(body, "references"),
     });
 
-    return jsonOk({ sent: true, ...result });
+    return NextResponse.json({ sent: true, ...result });
   } catch (error) {
-    return toErrorResponse(error);
+    return errorResponse(error);
   }
 }

@@ -128,6 +128,78 @@ export interface ChannelStateResponse {
   transport: string;
 }
 
+export interface EmailStatusResponse {
+  provider: string;
+  configured: boolean;
+  connected: boolean;
+  status: "connected" | "disconnected" | "error";
+  emailAddress: string | null;
+  connectedAt: string | null;
+  scopes: string[];
+  autoSend: boolean;
+  lastError: string | null;
+  encryptionConfigured: boolean;
+  oauthStateConfigured: boolean;
+}
+
+export type MetaChannelKind = "page" | "instagram";
+
+export interface MetaChannelSummary {
+  connected: boolean;
+  status: "connected" | "disconnected" | "error";
+  kind: MetaChannelKind | null;
+  pageId: string | null;
+  pageName: string | null;
+  igUsername: string | null;
+  connectedAt: string | null;
+  lastError: string | null;
+}
+
+export interface MetaStatusResponse {
+  configured: boolean;
+  businessId: string;
+  pendingSelection: boolean;
+  pendingExpiresAt: string | null;
+  facebook: MetaChannelSummary;
+  instagram: MetaChannelSummary;
+  encryptionConfigured: boolean;
+  oauthStateConfigured: boolean;
+}
+
+export interface MetaAsset {
+  kind: MetaChannelKind;
+  id: string;
+  name: string;
+  username: string | null;
+  pageId: string;
+  pageName: string;
+}
+
+export interface MetaAssetsResponse {
+  businessId: string;
+  assets: MetaAsset[];
+  pendingExpiresAt: string;
+}
+
+export type WhatsappConnectionStatus =
+  | "connecting"
+  | "qr"
+  | "connected"
+  | "disconnected"
+  | "logged_out";
+
+export interface WhatsappConnectionResponse {
+  businessId: string;
+  connectionId: string;
+  status: WhatsappConnectionStatus;
+  qr: string | null;
+  qrExpiresAt: string | null;
+  connectedAt: string | null;
+  phoneNumber: string | null;
+  lastError: string | null;
+  channelStatus: string;
+}
+
 export interface WebhookResponse {
   provider: string;
   duplicate: boolean;

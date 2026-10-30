@@ -1,8 +1,9 @@
-import { ApiError, toErrorResponse } from "@/lib/api";
-import { recordIntegrationError } from "@/lib/channels";
-import { verifyOAuthState } from "@/lib/integration-crypto";
-import { META_ERROR_KEY, completeMetaAuthorization } from "@/lib/meta";
-import { oauthCallbackResponse } from "@/lib/oauth-redirect";
+import { errorResponse } from "../../../../../server/auth/tenant.ts";
+import { recordIntegrationError } from "../../../../../server/integrations/channels.ts";
+import { verifyOAuthState } from "../../../../../server/integrations/crypto.ts";
+import { IntegrationError } from "../../../../../server/integrations/errors.ts";
+import { META_ERROR_KEY, completeMetaAuthorization } from "../../../../../server/integrations/meta.ts";
+import { oauthCallbackResponse } from "../../../../../server/integrations/redirect.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -18,20 +19,28 @@ export async function GET(request: Request) {
     businessId = state.businessId;
 
     if (state.provider !== "meta") {
-      throw new ApiError(400, "OAUTH_PROVIDER_MISMATCH", "This state belongs to a different provider.");
+      throw new IntegrationError(
+        400,
+        "OAUTH_PROVIDER_MISMATCH",
+        "This state belongs to a different provider.",
+      );
     }
 
     if (url.searchParams.get("error") || url.searchParams.get("error_code")) {
-      throw new ApiError(
+      throw new IntegrationError(
         400,
         "META_OAUTH_DENIED",
-        "Meta access was cancelled or denied. Start the connection again to retry."
+        "Meta access was cancelled or denied. Start the connection again to retry.",
       );
     }
 
     const code = url.searchParams.get("code");
     if (!code) {
-      throw new ApiError(400, "META_OAUTH_CODE_MISSING", "Meta did not return an authorization code.");
+      throw new IntegrationError(
+        400,
+        "META_OAUTH_CODE_MISSING",
+        "Meta did not return an authorization code.",
+      );
     }
 
     const { assets, expiresAt } = await completeMetaAuthorization({
@@ -48,21 +57,21 @@ export async function GET(request: Request) {
       details: { assets, pendingExpiresAt: expiresAt },
     });
   } catch (error) {
-    const apiError =
-      error instanceof ApiError
+    const failure =
+      error instanceof IntegrationError
         ? error
-        : new ApiError(500, "META_OAUTH_FAILED", "The Meta connection could not be completed.");
+        : new IntegrationError(500, "META_OAUTH_FAILED", "The Meta connection could not be completed.");
 
     if (businessId) {
-      await recordIntegrationError(businessId, "FACEBOOK", META_ERROR_KEY, apiError.message);
+      await recordIntegrationError(businessId, "FACEBOOK", META_ERROR_KEY, failure.message);
       return oauthCallbackResponse({
         integration: "meta",
         status: "error",
         businessId,
-        error: apiError.code,
+        error: failure.reason,
       });
     }
 
-    return toErrorResponse(apiError);
+    return errorResponse(failure);
   }
 }
