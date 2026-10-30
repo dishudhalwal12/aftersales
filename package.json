@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Team 41 - SPHINX '26 PS 2.5 omnichannel AI support & triage",
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.9"
   },
   "scripts": {
     "postinstall": "prisma generate",
@@ -22,7 +22,8 @@
     "db:seed": "prisma db seed",
     "db:setup": "prisma db push && prisma db seed",
     "db:reset": "prisma db push --force-reset && prisma db seed",
-    "verify:phase4": "node --env-file-if-exists=.env scripts/verify-phase4.mjs"
+    "verify:phase4": "node --env-file-if-exists=.env scripts/verify-phase4.mjs",
+    "env:check": "node --env-file-if-exists=.env scripts/check-env.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"

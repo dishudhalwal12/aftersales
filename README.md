@@ -51,6 +51,7 @@ Or the shortcuts:
 npm test             # 265 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build (see "Known limits" for the Windows prerender issue)
+npm run env:check    # which keys are set / missing (never prints values)
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
 npm run verify:phase3 # boots the app and asserts the Phase 3 channel gate over HTTP + DB
 npm run verify:phase4 # boots the app and asserts the voice gate over HTTP + the DB
@@ -192,6 +193,10 @@ business and gets a `404` for an unknown id.
 ---
 
 ## Configuration
+
+**Setting up `.env` for the first time, or sending it to a teammate?** Follow the step-by-step guide
+in [`docs/ENV-SETUP.md`](docs/ENV-SETUP.md) — where the file is, how to open it, how to prove it works,
+and how to hand it over safely.
 
 Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an empty `.env` still runs.
 
