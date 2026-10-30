@@ -21,6 +21,12 @@ describe("channelForProvider", () => {
     assert.equal(channelForProvider("telegram"), null);
     assert.equal(channelForProvider(""), null);
   });
+
+  it("refuses prototype keys instead of returning them as channels", () => {
+    assert.equal(channelForProvider("constructor"), null);
+    assert.equal(channelForProvider("__proto__"), null);
+    assert.equal(channelForProvider("toString"), null);
+  });
 });
 
 describe("isWebhookTokenValid", () => {

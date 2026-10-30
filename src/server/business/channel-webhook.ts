@@ -16,7 +16,10 @@ const CHANNEL_FOR_PROVIDER: Readonly<Record<string, TicketChannel>> = {
 
 /** `null` for a provider this deployment does not accept (the route answers 404). */
 export function channelForProvider(provider: string): TicketChannel | null {
-  return CHANNEL_FOR_PROVIDER[provider.trim().toLowerCase()] ?? null;
+  const key = provider.trim().toLowerCase();
+  // Own-property check only: `obj["constructor"]` would walk the prototype chain and return
+  // a function, which the route would hand to Prisma as a channel type (500 instead of 404).
+  return Object.hasOwn(CHANNEL_FOR_PROVIDER, key) ? CHANNEL_FOR_PROVIDER[key]! : null;
 }
 
 /**
