@@ -11,6 +11,20 @@
 
 ---
 
+> ### ⚠ Decision 2026-10-31 — the landing page (overrides §1.3 and Phase 1 Task 1)
+>
+> **The front door is the saved page in `public/landing`. Do not build or substitute a landing page at `/`.**
+>
+> - `/` **must** keep serving that page through the `next.config.ts` rewrite to `/landing/index.html`
+>   (its assets live under `public/landing/assets/...` and are referenced from the site root).
+> - The whole public flow is: `/` → the page's **Go to Dashboard** button → `/auth` → sign in or
+>   one-click judge demo → `/dashboard`.
+> - Any landing page built from this PRD goes to **`/home`** and is never wired to `/`.
+> - Do not delete the rewrite and do not add `src/app/page.tsx`. That was done once and reverted by
+>   the owner — the saved page is the intended front door, not a placeholder.
+
+---
+
 ## 0. Instructions for the AI Coding Agent (Read First)
 
 You are building **AfterSales AI** for **SPHINX'26 Problem Statement 2.5 (AI Agent for Automated Customer Support and Ticket Triage)**. Follow these execution rules strictly:
