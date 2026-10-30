@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiFetch, emitDataChanged } from "./client.ts";
 import type {
   VoiceSessionResponse,
+  VoiceSessionView,
   VoiceToolSearchResponse,
   VoiceWebhookResponse,
 } from "../../shared/api.ts";
@@ -11,15 +13,24 @@ import { ChannelBadge } from "../ui/Badges.tsx";
 
 const STEPS = ["initiated", "ringing", "in_progress", "completed"] as const;
 
+function outcomeLabel(view: VoiceSessionView): string {
+  if (view.escalationOutcome === "escalated_to_owner") return "escalated to owner";
+  if (view.escalationOutcome === "resolved_by_ai") return "resolved by the agent";
+  return view.status === "failed" ? "call failed" : "in progress";
+}
+
 export function VoiceTestPanel({
   businessId,
   businessName,
   sarvamConfigured,
+  lastSession,
 }: {
   businessId: string;
   businessName: string;
   sarvamConfigured: boolean;
+  lastSession: VoiceSessionView | null;
 }) {
+  const router = useRouter();
   const [phone, setPhone] = useState("+919812345678");
   const [session, setSession] = useState<VoiceSessionResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,6 +107,8 @@ export function VoiceTestPanel({
       setCompletion(response);
       setSession({ ...session, status: "completed" });
       emitDataChanged();
+      // Re-read the server's row so the Last call card is the database's, not local state.
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "could not record the call");
     } finally {
@@ -122,6 +135,59 @@ export function VoiceTestPanel({
         <p className="banner banner-danger" role="alert" style={{ marginBottom: 12 }}>
           {error}
         </p>
+      )}
+
+      {lastSession !== null && lastSession.sessionId !== session?.sessionId && (
+        <div
+          className="glass panel"
+          style={{ marginBottom: 16 }}
+          data-last-call={lastSession.sessionId}
+        >
+          <div className="panel-head" style={{ marginBottom: 8 }}>
+            <div>
+              <p className="eyebrow">Last call</p>
+              <h3 style={{ marginTop: 4, fontSize: 16 }}>
+                {lastSession.status === "failed" ? "Call failed" : "Completed call"}
+              </h3>
+            </div>
+            <span
+              className={`badge ${
+                lastSession.escalationOutcome === "escalated_to_owner" ? "badge-esc" : "badge-sent"
+              }`}
+              data-voice-status={lastSession.status}
+            >
+              {lastSession.status.replace("_", " ")}
+            </span>
+          </div>
+
+          <div className="row" style={{ gap: 22, flexWrap: "wrap" }}>
+            <div>
+              <p className="eyebrow" style={{ marginBottom: 6 }}>Duration</p>
+              <p className="mono" style={{ fontSize: 13.5 }}>
+                {lastSession.durationSeconds === null ? "—" : `${lastSession.durationSeconds}s`}
+              </p>
+            </div>
+            <div>
+              <p className="eyebrow" style={{ marginBottom: 6 }}>Outcome</p>
+              <p style={{ fontSize: 13.5 }}>{outcomeLabel(lastSession)}</p>
+            </div>
+            <div>
+              <p className="eyebrow" style={{ marginBottom: 6 }}>Fallback PIN</p>
+              <p className="mono" style={{ fontSize: 13.5 }}>
+                {lastSession.demoPin}
+              </p>
+            </div>
+          </div>
+
+          <pre className="transcript" data-voice-transcript>
+            {lastSession.transcript ?? "No transcript was recorded for this call."}
+          </pre>
+
+          <p className="tiny muted" style={{ marginTop: 10 }}>
+            This call is a VOICE ticket in the live queue, with its rule and reason attached.
+            Start a new call above to run the other business on the same number.
+          </p>
+        </div>
       )}
 
       <div className="glass panel">
