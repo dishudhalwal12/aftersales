@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { isBaileysConfigured } from "@/lib/baileys";
 import { prisma } from "@/lib/db";
+import { readEmailProviderSettings } from "@/lib/email";
+import { isIntegrationEncryptionConfigured, isOAuthStateSigningConfigured } from "@/lib/integration-crypto";
+import { isMetaConfigured } from "@/lib/meta";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +25,12 @@ export async function GET() {
       process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()
     ),
     voiceWebhookConfigured: Boolean(process.env.PUBLIC_WEBHOOK_BASE_URL?.trim()),
+    whatsappServiceConfigured: isBaileysConfigured(),
+    emailIntegrationConfigured: readEmailProviderSettings().configured,
+    metaIntegrationConfigured: isMetaConfigured(),
+    integrationEncryptionConfigured: isIntegrationEncryptionConfigured(),
+    oauthStateConfigured: isOAuthStateSigningConfigured(),
+    emailPollingScheduledJobConfigured: Boolean(process.env.CRON_SECRET?.trim()),
   };
 
   return NextResponse.json(

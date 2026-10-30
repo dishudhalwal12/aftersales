@@ -38,3 +38,12 @@ prisma/*.db-journal
 
 # vercel
 .vercel
+
+# baileys whatsapp service (separate local package)
+/baileys-service/node_modules
+/baileys-service/dist
+/baileys-service/sessions
+/baileys-service/.env
+/baileys-service/.env.local
+/baileys-service/.env.*.local
+/baileys-service/logs

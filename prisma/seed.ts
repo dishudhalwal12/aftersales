@@ -116,6 +116,7 @@ const jaipurSmile: BusinessFacts = {
 
 const CHANNELS_A = [
   { channelType: "WHATSAPP", status: "TEST_MODE", autoSend: true },
+  { channelType: "FACEBOOK", status: "UNAVAILABLE", autoSend: false },
   { channelType: "INSTAGRAM", status: "TEST_MODE", autoSend: false },
   { channelType: "GMAIL", status: "DRAFT_ONLY", autoSend: false },
   { channelType: "SARVAM_VOICE", status: "TEST_MODE", autoSend: false },
@@ -123,6 +124,7 @@ const CHANNELS_A = [
 
 const CHANNELS_B = [
   { channelType: "WHATSAPP", status: "TEST_MODE", autoSend: true },
+  { channelType: "FACEBOOK", status: "UNAVAILABLE", autoSend: false },
   { channelType: "INSTAGRAM", status: "UNAVAILABLE", autoSend: false },
   { channelType: "GMAIL", status: "DRAFT_ONLY", autoSend: false },
   { channelType: "SARVAM_VOICE", status: "TEST_MODE", autoSend: false },

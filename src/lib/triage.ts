@@ -10,7 +10,13 @@ import { generateTriageResponse, type LLMError } from "./llm-orchestrator";
 import { searchMarkdownRag } from "./rag";
 import { evaluateRoutingRules, type LLMResponse } from "./routing-engine";
 
-export type TriageChannel = "TEXT_MODAL" | "WHATSAPP" | "INSTAGRAM" | "GMAIL" | "VOICE";
+export type TriageChannel =
+  | "TEXT_MODAL"
+  | "WHATSAPP"
+  | "FACEBOOK"
+  | "INSTAGRAM"
+  | "GMAIL"
+  | "VOICE";
 
 export type TriageInput = {
   business: Business;

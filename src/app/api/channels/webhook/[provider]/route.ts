@@ -36,7 +36,7 @@ export async function POST(
       throw new ApiError(
         404,
         "UNKNOWN_PROVIDER",
-        "Supported webhook providers: whatsapp, instagram, gmail."
+        "Supported webhook providers: whatsapp, facebook, instagram, gmail."
       );
     }
 

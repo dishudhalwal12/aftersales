@@ -3,7 +3,13 @@ export const DEMO_USER_EMAIL =
 export const DEMO_USER_NAME = "Judge Demo";
 export const DEMO_USER_PASSWORD = "demo1234";
 
-export const CHANNEL_TYPES = ["WHATSAPP", "INSTAGRAM", "GMAIL", "SARVAM_VOICE"] as const;
+export const CHANNEL_TYPES = [
+  "WHATSAPP",
+  "FACEBOOK",
+  "INSTAGRAM",
+  "GMAIL",
+  "SARVAM_VOICE",
+] as const;
 export type ChannelType = (typeof CHANNEL_TYPES)[number];
 
 export const CHANNEL_STATUSES = ["CONNECTED", "TEST_MODE", "DRAFT_ONLY", "UNAVAILABLE"] as const;

@@ -1,7 +1,8 @@
 import type { ChannelConnection } from "@prisma/client";
 
 import { ApiError } from "./api";
-import type { ChannelType } from "./constants";
+import type { ChannelStatus, ChannelType } from "./constants";
+import { CHANNEL_STATUSES } from "./constants";
 import { prisma } from "./db";
 
 // A channel row must exist and must not be UNAVAILABLE before it may receive
@@ -23,4 +24,77 @@ export async function assertChannelAvailable(
   }
 
   return connection;
+}
+
+export function readChannelConfig(configJson: string | null): Record<string, unknown> {
+  if (!configJson) return {};
+  try {
+    const parsed: unknown = JSON.parse(configJson);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+export function isChannelStatus(value: unknown): value is ChannelStatus {
+  return typeof value === "string" && (CHANNEL_STATUSES as readonly string[]).includes(value);
+}
+
+// Businesses created before a channel type existed (or seeded rows) may not
+// have a row yet. Connecting a provider creates it with the same defaults the
+// onboarding flow uses, so no migration is needed when a new type is added.
+export async function ensureChannelConnection(
+  businessId: string,
+  channelType: ChannelType
+): Promise<ChannelConnection> {
+  return prisma.channelConnection.upsert({
+    where: { businessId_channelType: { businessId, channelType } },
+    update: {},
+    create: { businessId, channelType, status: "UNAVAILABLE", autoSend: false },
+  });
+}
+
+export type ChannelConfigUpdate = {
+  config?: Record<string, unknown>;
+  status?: ChannelStatus;
+  autoSend?: boolean;
+};
+
+export async function updateChannelConfig(
+  channel: ChannelConnection,
+  update: ChannelConfigUpdate
+): Promise<ChannelConnection> {
+  const nextConfig = { ...readChannelConfig(channel.configJson), ...(update.config ?? {}) };
+  return prisma.channelConnection.update({
+    where: { id: channel.id },
+    data: {
+      configJson: JSON.stringify(nextConfig),
+      ...(update.status ? { status: update.status } : {}),
+      ...(update.autoSend === undefined ? {} : { autoSend: update.autoSend }),
+    },
+  });
+}
+
+// Best-effort error marker for status endpoints. The channel keeps its current
+// status so a transient provider failure does not silently delete the
+// connection, but the owner can see why the channel is not working.
+export async function recordIntegrationError(
+  businessId: string,
+  channelType: ChannelType,
+  errorKey: string,
+  message: string
+): Promise<void> {
+  const channel = await ensureChannelConnection(businessId, channelType);
+  await updateChannelConfig(channel, {
+    config: { [errorKey]: message.slice(0, 500) },
+  });
+}
+
+export async function clearIntegrationError(
+  channel: ChannelConnection,
+  errorKey: string
+): Promise<ChannelConnection> {
+  return updateChannelConfig(channel, { config: { [errorKey]: null } });
 }

@@ -63,7 +63,7 @@ model ChannelConnection {
   id          String   @id @default(cuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  channelType String // "WHATSAPP" | "INSTAGRAM" | "GMAIL" | "SARVAM_VOICE"
+  channelType String // "WHATSAPP" | "FACEBOOK" | "INSTAGRAM" | "GMAIL" | "SARVAM_VOICE"
   status      String // "CONNECTED" | "TEST_MODE" | "DRAFT_ONLY" | "UNAVAILABLE"
   autoSend    Boolean  @default(false)
   configJson  String? // Encrypted metadata (never raw passwords)
@@ -77,7 +77,7 @@ model Ticket {
   businessId         String
   business           Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   externalMessageId  String?       @unique // Prevents duplicate webhook processing
-  channel            String // "TEXT_MODAL" | "WHATSAPP" | "INSTAGRAM" | "GMAIL" | "VOICE"
+  channel            String // "TEXT_MODAL" | "WHATSAPP" | "FACEBOOK" | "INSTAGRAM" | "GMAIL" | "VOICE"
   customerName       String
   customerHandle     String // Email, phone number, or IG handle
   customerQuery      String

@@ -1,0 +1,33 @@
+{
+  "name": "aftersales-baileys-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local WhatsApp (Baileys) bridge for AfterSales AI",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start:prod": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.23",
+    "@types/node": "^24.10.1",
+    "@types/qrcode": "^1.5.5",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "3.2.7"
+  }
+}

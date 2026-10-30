@@ -17,7 +17,7 @@ import {
   type TriageResult,
 } from "./triage";
 
-export const WEBHOOK_PROVIDERS = ["WHATSAPP", "INSTAGRAM", "GMAIL"] as const;
+export const WEBHOOK_PROVIDERS = ["WHATSAPP", "FACEBOOK", "INSTAGRAM", "GMAIL"] as const;
 export type WebhookProvider = (typeof WEBHOOK_PROVIDERS)[number];
 
 export type InboundWebhookInput = {
