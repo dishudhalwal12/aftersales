@@ -7,14 +7,18 @@ interchangeable.
 | # | URL | Who redirects to it | Where it is configured |
 |---|---|---|---|
 | 1 | `https://<project-ref>.supabase.co/auth/v1/callback` | **Google → Supabase** (hop 1) | Google Cloud Console → APIs & Services → Credentials → OAuth client → **Authorized redirect URIs** |
-| 2 | `http://localhost:3000/auth/callback` | **Supabase → our app** (hop 2) | Supabase → Authentication → URL Configuration → **Redirect URLs**; `src/server/auth/supabase/config.ts` builds it from `NEXTAUTH_URL` |
-| 3 | `http://localhost:3000` | where the browser lands when hop 2 has no `redirect_to` | Supabase → Authentication → URL Configuration → **Site URL** |
+| 2 | `<origin>/auth/callback` | **Supabase → our app** (hop 2) | Supabase → Authentication → URL Configuration → **Redirect URLs**; the origin comes from `src/server/auth/supabase/config.ts` (`AUTH_BASE_URL`, else `NEXTAUTH_URL`, else the Vercel domain) |
+| 3 | `<origin>` | where the browser lands when hop 2 has no `redirect_to` | Supabase → Authentication → URL Configuration → **Site URL** |
 
 For this project:
 
 - hop 1 is `https://grcmcajhioleuczdexxv.supabase.co/auth/v1/callback`
-- hop 2 is `http://localhost:3000/auth/callback`
-- hop 3 is `http://localhost:3000`
+- hop 2 is `http://localhost:3000/auth/callback` locally and `https://<deployed-domain>/auth/callback` in production
+- hop 3 is `http://localhost:3000` locally and `https://<deployed-domain>` in production
+
+**Both origins must be listed** in Supabase's Redirect URLs and Site URL, or Supabase silently falls
+back to whatever Site URL says — which is how a deployed sign-in ends up at `localhost:3000`. Add
+`https://<deployed-domain>` and `https://<deployed-domain>/**` next to the local entries.
 
 ## The flow in order
 
@@ -31,8 +35,11 @@ password login, and `src/server/auth/crypto.ts` is the only thing that signs any
 
 ## Deliberate constraints
 
-- `redirect_to` is built from `NEXTAUTH_URL`, **not** from the request's `Origin`/`Host` header —
-  otherwise the OAuth round trip could be pointed at an attacker's host.
+- `redirect_to` is built from configuration and the hosting platform, **not** from the request's
+  `Origin`/`Host` header — otherwise the OAuth round trip could be pointed at an attacker's host.
+  Order: `AUTH_BASE_URL`, then a non-local `NEXTAUTH_URL`, then `VERCEL_PROJECT_PRODUCTION_URL` /
+  `VERCEL_URL` (set by Vercel itself), and only then a local value. A deployment therefore never
+  lands on `localhost` while it has a real origin available.
 - An existing password account keeps its password when Google is linked: the upsert only fills
   `googleId`, so Google is a second door into the same user.
 - `SUPABASE_ANON_KEY` is only read server-side (the OAuth handshake), so it is stored as a normal secret. The `NEXT_PUBLIC_SUPABASE_*` names are accepted as a fallback.
@@ -43,7 +50,7 @@ password login, and `src/server/auth/crypto.ts` is the only thing that signs any
 | Symptom | Cause |
 |---|---|
 | Google: `redirect_uri_mismatch` | URL 1 missing or different in Google Cloud Console |
-| Lands on `localhost:3000` with no session | URL 2 missing from Supabase Redirect URLs, so Supabase fell back to Site URL |
+| Lands on `localhost:3000` with no session | URL 2 missing from Supabase Redirect URLs, so Supabase fell back to Site URL — or a non-Vercel production host sets neither `AUTH_BASE_URL` nor `NEXTAUTH_URL` |
 | `/auth?error=…` after coming back | code exchange failed — usually the PKCE cookie was lost (different port or host than the one that started the flow) |
 | Button says "not configured" | `SUPABASE_URL` / `SUPABASE_ANON_KEY` are empty |
 

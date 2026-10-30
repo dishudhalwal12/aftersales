@@ -48,7 +48,7 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # __TEST_COUNT__ tests, native runner, no test dependencies
+npm test             # 256 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build (see "Known limits" for the Windows prerender issue)
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP

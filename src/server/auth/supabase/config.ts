@@ -53,11 +53,58 @@ export function readSupabaseConfig(env: Env = process.env): SupabaseConfig | nul
   return { url, anonKey };
 }
 
-/** Where this app is reachable. Never taken from the request origin (open redirects). */
+/**
+ * Where this app is reachable — the origin OAuth `redirect_to` is built from.
+ *
+ * A deployed app must never silently send a browser to `localhost:3000`, which is exactly what
+ * happened when this only read `NEXTAUTH_URL`: unset on Vercel, or still holding the local value
+ * copied out of `.env`, it produced `http://localhost:3000/auth/callback` and Google dutifully
+ * bounced the judge's browser there. Two rules fix it without opening a redirect hole:
+ *
+ *   1. an explicit `AUTH_BASE_URL` / `NEXTAUTH_URL` that names a real host always wins;
+ *   2. otherwise the platform's own origin is used (`VERCEL_PROJECT_PRODUCTION_URL`, then
+ *      `VERCEL_URL`) — set by the host, never by the request, so it cannot be poisoned by a
+ *      `Host` header.
+ *
+ * A local value is still honoured in development, and as the last resort everywhere (a
+ * production host that sets neither variable has to set `AUTH_BASE_URL`).
+ */
 export function authBaseUrl(env: Env = process.env): string {
-  const configured = (env.NEXTAUTH_URL ?? "").trim();
-  const base = configured.length > 0 ? configured : "http://localhost:3000";
-  return base.replace(/\/+$/, "");
+  const explicit = firstSet(env, ["AUTH_BASE_URL", "NEXTAUTH_URL"]).replace(/\/+$/, "");
+  if (explicit.length > 0 && !isLocalOrigin(explicit)) return explicit;
+
+  const platform = platformOrigin(env);
+  if (platform !== null) return platform;
+
+  return explicit.length > 0 ? explicit : "http://localhost:3000";
+}
+
+/** Vercel sets these itself; production pins the stable domain, previews get the deployment URL. */
+function platformOrigin(env: Env): string | null {
+  const production = (env.VERCEL_PROJECT_PRODUCTION_URL ?? "").trim();
+  if (production.length > 0) return `https://${production.replace(/\/+$/, "")}`;
+
+  const deployment = (env.VERCEL_URL ?? "").trim();
+  if (deployment.length > 0) return `https://${deployment.replace(/\/+$/, "")}`;
+
+  return null;
+}
+
+function isLocalOrigin(value: string): boolean {
+  let host: string;
+  try {
+    host = new URL(value).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.endsWith(".local")
+  );
 }
 
 /**
