@@ -14,6 +14,7 @@
     "test": "node --env-file-if-exists=.env --test 'tests/**/*.test.ts'",
     "test:coverage": "node --env-file-if-exists=.env --test --experimental-test-coverage 'tests/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
+    "landing": "node scripts/serve-landing.mjs",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "db:setup": "prisma db push && prisma db seed",
