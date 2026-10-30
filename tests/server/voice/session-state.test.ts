@@ -38,22 +38,40 @@ describe("callPlacementStatus", () => {
 
 describe("completionOutcome", () => {
   it("records a caller who needed a human as escalated to the owner", () => {
-    assert.equal(completionOutcome({ escalate: true, status: "completed" }), "escalated_to_owner");
+    assert.equal(
+      completionOutcome({ escalate: true, status: "completed", grounded: true }),
+      "escalated_to_owner",
+    );
   });
 
   it("records a resolved call as resolved by the agent", () => {
-    assert.equal(completionOutcome({ escalate: false, status: "completed" }), "resolved_by_ai");
+    assert.equal(
+      completionOutcome({ escalate: false, status: "completed", grounded: true }),
+      "resolved_by_ai",
+    );
   });
 
   it("treats a failed call as work the owner must pick up", () => {
-    assert.equal(completionOutcome({ escalate: false, status: "failed" }), "escalated_to_owner");
+    assert.equal(
+      completionOutcome({ escalate: false, status: "failed", grounded: true }),
+      "escalated_to_owner",
+    );
+  });
+
+  it("never calls an ungrounded call resolved — the owner still has to answer it", () => {
+    assert.equal(
+      completionOutcome({ escalate: false, status: "completed", grounded: false }),
+      "escalated_to_owner",
+    );
   });
 
   it("only ever returns a frozen outcome", () => {
     for (const status of VOICE_STATUSES) {
       for (const escalate of [true, false]) {
-        const outcome = completionOutcome({ escalate, status });
-        assert.ok(ESCALATION_OUTCOMES.includes(outcome), `${outcome} is outside the enum`);
+        for (const grounded of [true, false]) {
+          const outcome = completionOutcome({ escalate, status, grounded });
+          assert.ok(ESCALATION_OUTCOMES.includes(outcome), `${outcome} is outside the enum`);
+        }
       }
     }
   });

@@ -77,7 +77,13 @@ export default async function DashboardPage({
   // The last call this business has, read from the database so the panel still shows the
   // transcript, duration and outcome after a reload (Phase 4 gate).
   const latestCall = await prisma.voiceTestSession.findFirst({
-    where: { businessId: activeBusiness.businessId },
+    where: {
+      businessId: activeBusiness.businessId,
+      // Only a call that actually ended is a "last call". A session that is still `initiated`
+      // has no transcript, no outcome and no queue ticket — showing it here would claim a
+      // completed call that never happened.
+      status: { in: ["completed", "failed"] },
+    },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

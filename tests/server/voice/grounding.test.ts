@@ -90,11 +90,34 @@ describe("groundVoiceAnswer — the same floor as text", () => {
       assert.ok(available.has(id), `${id} was not retrieved`);
     }
   });
+  it("escalates rather than reading a question back when the chunk holds no answer", () => {
+    const answer = groundVoiceAnswer("What is your refund policy?", [
+      { id: "chk_q_01", section: "FAQs", content: "Q: What is your refund policy? Q: How do I cancel?", score: 9 },
+    ]);
+
+    assert.equal(answer.escalateToHuman, true);
+    assert.deepEqual(answer.citedChunkIds, []);
+    assert.equal(answer.groundedFacts, UNGROUNDED_REPLY);
+  });
+
+  it("never cites a chunk it cannot speak from", () => {
+    const answer = groundVoiceAnswer("policy", [
+      { id: "chk_e_01", section: "Return Policy", content: "   ", score: 9 },
+    ]);
+
+    assert.equal(answer.escalateToHuman, true);
+    assert.deepEqual(answer.citedChunkIds, []);
+    assert.equal(answer.groundedFacts, UNGROUNDED_REPLY);
+  });
 });
 
 describe("spokenFacts", () => {
   it("drops a FAQ question and keeps the answer", () => {
     assert.equal(spokenFacts("", "Q: Same? A: Different."), "Different.");
+  });
+
+  it("returns nothing when the content is questions only", () => {
+    assert.equal(spokenFacts("refund", "Q: What is your refund policy?"), "");
   });
 
   it("strips the A: marker and prefers the sentence that matches the question", () => {

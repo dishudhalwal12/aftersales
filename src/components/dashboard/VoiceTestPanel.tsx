@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, emitDataChanged } from "./client.ts";
+import { apiFetch, emitDataChanged, timeAgo } from "./client.ts";
 import type {
   VoiceSessionResponse,
   VoiceSessionView,
@@ -145,7 +145,7 @@ export function VoiceTestPanel({
         >
           <div className="panel-head" style={{ marginBottom: 8 }}>
             <div>
-              <p className="eyebrow">Last call</p>
+              <p className="eyebrow">Last call · {timeAgo(lastSession.createdAt)}</p>
               <h3 style={{ marginTop: 4, fontSize: 16 }}>
                 {lastSession.status === "failed" ? "Call failed" : "Completed call"}
               </h3>
@@ -184,8 +184,9 @@ export function VoiceTestPanel({
           </pre>
 
           <p className="tiny muted" style={{ marginTop: 10 }}>
-            This call is a VOICE ticket in the live queue, with its rule and reason attached.
-            Start a new call above to run the other business on the same number.
+            {lastSession.escalationOutcome === null
+              ? "This call ended before a completion was reported, so no queue ticket was opened."
+              : "This call is a VOICE ticket in the live queue, with its rule and reason attached. Start a new call above to run the other business on the same number."}
           </p>
         </div>
       )}

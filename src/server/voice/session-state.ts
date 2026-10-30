@@ -37,11 +37,17 @@ export function callPlacementStatus(call: CallPlacement, current: VoiceStatus): 
 /**
  * The outcome a completion webhook records.
  *
- * A caller who asked for a human is escalated. So is a call that failed — a dropped call is
- * exactly the case the owner must not miss, and `status: "failed"` still distinguishes it.
+ * A caller who asked for a human is escalated. So is a call that failed, and so is a call the
+ * agent could not ground — a dropped or unanswered call is exactly the case the owner must not
+ * miss. `status: "failed"` still distinguishes the technical failure.
  */
-export function completionOutcome(input: { escalate: boolean; status: string }): EscalationOutcome {
+export function completionOutcome(input: {
+  escalate: boolean;
+  status: string;
+  grounded: boolean;
+}): EscalationOutcome {
   if (input.escalate) return "escalated_to_owner";
   if (input.status === "failed") return "escalated_to_owner";
+  if (!input.grounded) return "escalated_to_owner";
   return "resolved_by_ai";
 }

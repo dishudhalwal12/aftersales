@@ -46,11 +46,12 @@ export interface CompletionDecision {
  * The routing verdict written on the queue ticket a completed call creates.
  *
  * Voice reuses the text rules rather than inventing its own: R1 when the caller asked for a
- * person, R6 only when the call was grounded, and R5 (a draft a human must approve) when the
- * platform reports no verified citation — the spoken answer is never taken as proof by itself.
+ * person, R6 only when the call was grounded, and R2 when the platform reports no verified
+ * citation — corpus ``< 50`` confidence or zero verified chunks, which PRD §4.3 escalates rather
+ * than leaving in a draft queue nobody watches.
  */
 export function completionDecision(input: { escalate: boolean; grounded: boolean }): CompletionDecision {
   if (input.escalate) return { actionStatus: "escalated", state: "escalated", rule: "R1" };
   if (input.grounded) return { actionStatus: "answered", state: "replied", rule: "R6" };
-  return { actionStatus: "draft", state: "triaged", rule: "R5" };
+  return { actionStatus: "escalated", state: "escalated", rule: "R2" };
 }

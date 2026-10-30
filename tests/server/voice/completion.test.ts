@@ -59,11 +59,11 @@ describe("completionDecision", () => {
     });
   });
 
-  it("holds an ungrounded call as a draft under R5 — voice never guesses", () => {
+  it("escalates an ungrounded call under R2 — no verified chunk means it could not answer", () => {
     assert.deepEqual(completionDecision({ escalate: false, grounded: false }), {
-      actionStatus: "draft",
-      state: "triaged",
-      rule: "R5",
+      actionStatus: "escalated",
+      state: "escalated",
+      rule: "R2",
     });
   });
 });

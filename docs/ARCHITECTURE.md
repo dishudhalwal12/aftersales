@@ -98,7 +98,7 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | `cited_chunk_ids` from the model | untrusted | filtered against the business's real chunk ids ⇒ R2 if empty |
 | Webhook `externalMessageId` | the idempotency key | replay returns the original ticket with `duplicate: true` |
 | Voice `demoPin` / `sessionId` | the capability that scopes a call | expired session ⇒ `410`, wrong tenant ⇒ `403` |
-| Voice `citedChunkIds` from the platform | evidence, not authority | kept only when the id is this business's chunk ⇒ R5 draft otherwise |
+| Voice `citedChunkIds` from the platform | evidence, not authority | kept only when the id is this business's chunk ⇒ R2 escalation otherwise |
 | The end customer | always unauthenticated | zero customer credentials exist to leak |
 
 ## Voice: one number, per-call context
@@ -124,8 +124,10 @@ sequenceDiagram
 
 The voice path holds the **same confidence floor as text** (`retrievalConfidence`, not its own
 arithmetic): below 50 it escalates and cites nothing, because a wrong answer is spoken out loud
-rather than read. A completion webhook's citations are filtered against that business's chunk ids,
-and its ticket is keyed `voice:<sessionId>`, so re-reporting one call never answers twice. The
+rather than read. A completion webhook's citations are filtered against that business's chunk ids — no verified
+chunk means R2, never an auto-answer — and its ticket is keyed `voice:<sessionId>`, so re-reporting
+one call never answers twice. The panel's **Last call** card only ever renders a `completed` or
+`failed` session, so an unfinished call cannot be presented as a finished one. The
 completed call's transcript, duration and outcome are read back from the database by
 `/dashboard?tab=voice`, not from the tab that recorded it.
 

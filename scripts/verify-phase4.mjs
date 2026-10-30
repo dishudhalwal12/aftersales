@@ -44,7 +44,13 @@ const FAKE_SARVAM_KEY = "gate4-not-a-real-key";
 
 const RUN = `gate4-${Date.now()}`;
 /** One caller number for the whole run — the gate's claim is one shared number, two businesses. */
-const CALLER_PHONE = `+919${RUN.slice(-8)}`;
+const RESERVED_CALLER_PHONE = "+919000009999";
+/**
+ * The gate's caller number is deliberately **stable**, not run-derived: any row on this number
+ * is a gate row, so `cleanup()` also sweeps the rows a crashed earlier run left behind. A
+ * run-derived number would make those unreachable for ever (see the review finding this fixed).
+ */
+const CALLER_PHONE = RESERVED_CALLER_PHONE;
 /** PRD §3 freezes the session status enum; nothing may write outside it. */
 const VOICE_STATUSES = ["initiated", "ringing", "in_progress", "completed", "failed"];
 const ESCALATION_OUTCOMES = ["resolved_by_ai", "escalated_to_owner"];
@@ -175,6 +181,11 @@ async function group(name, run) {
   }
 }
 
+async function deleteGateRows(prisma) {
+  await prisma.voiceTestSession.deleteMany({ where: { judgePhone: CALLER_PHONE } });
+  await prisma.ticket.deleteMany({ where: { customerHandle: CALLER_PHONE } });
+}
+
 async function cleanup() {
   const problems = [];
   let prisma = null;
@@ -184,8 +195,7 @@ async function cleanup() {
     return [`could not reach the database: ${error instanceof Error ? error.message : String(error)}`];
   }
   try {
-    await prisma.voiceTestSession.deleteMany({ where: { judgePhone: CALLER_PHONE } });
-    await prisma.ticket.deleteMany({ where: { customerHandle: CALLER_PHONE } });
+    await deleteGateRows(prisma);
   } catch (error) {
     problems.push(`could not delete gate rows: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -240,6 +250,11 @@ async function startSessionGroup() {
   expect("the response names the session", typeof body.sessionId === "string", JSON.stringify(body.sessionId));
   expect("the 4-digit fallback PIN is 4 digits", /^\d{4}$/.test(String(body.demoPin)), String(body.demoPin));
   expect("the session is bound to the requested business", body.businessId === CLOUDPULSE, String(body.businessId));
+  expect(
+    "PRD §5.3: the response names the business",
+    body.businessName === "CloudPulse CRM",
+    String(body.businessName),
+  );
   expect(
     "the context mechanism is per-call variables",
     body.contextInjectionMode === "PER_CALL_VARIABLES",
@@ -542,12 +557,12 @@ async function ungroundedCompletion() {
   );
   expect(
     "AT-09: a foreign citation never marks a voice reply answered",
-    reported?.actionStatus === "draft",
+    reported?.actionStatus === "escalated",
     String(reported?.actionStatus),
   );
   expect(
-    "an ungrounded call is held as a draft under R5",
-    reported?.routingRuleHit === "R5",
+    "an ungrounded call escalates under R2 — there is no verified chunk at all",
+    reported?.routingRuleHit === "R2",
     String(reported?.routingRuleHit),
   );
 
@@ -556,9 +571,14 @@ async function ungroundedCompletion() {
     where: { externalMessageId: `voice:${session.sessionId}` },
   });
   expect(
-    "the draft ticket cites nothing",
+    "the escalated ticket cites nothing",
     ticket !== null && ticket.citedChunkIds === "[]",
     String(ticket?.citedChunkIds),
+  );
+  expect(
+    "an ungrounded call is never recorded as resolved by the agent",
+    ticket !== null && reported?.escalationOutcome === "escalated_to_owner",
+    String(reported?.escalationOutcome),
   );
 }
 
@@ -619,10 +639,45 @@ async function dashboard() {
     "the persisted transcript appears in the dashboard",
   );
   expectIncludes(page.body, "96s", "the persisted duration appears in the dashboard");
+  expectIncludes(
+    page.body,
+    'data-voice-status="completed"',
+    "the card renders the persisted status, not a status of its own",
+  );
   expect(
     "AT-12: the Sarvam key never reaches the page",
     !page.body.includes(FAKE_SARVAM_KEY),
     "the spawned server's SARVAM_API_KEY was found in the HTML",
+  );
+}
+
+async function lastCall() {
+  const clinic = sessions.get(CLINIC);
+  const started = await post(
+    "/api/voice/start-session",
+    { businessId: CLINIC, judgePhone: CALLER_PHONE },
+    judgeCookie,
+  );
+  const fresh = parseJson(started.body);
+  expect("a call is started that is never recorded", fresh !== null, started.body.slice(0, 120));
+  if (fresh === null) return;
+
+  const page = await get(`/dashboard?tab=voice&business=${CLINIC}`, judgeCookie);
+  expect("the panel still renders", page.status === 200, `status ${page.status}`);
+  expect(
+    "an unrecorded call is not shown as the last call",
+    !page.body.includes(`data-last-call="${fresh.sessionId}"`),
+    "a session that was never completed was rendered as the last completed call",
+  );
+  expect(
+    "the last call is still the completed one",
+    clinic !== undefined && page.body.includes(`data-last-call="${clinic.sessionId}"`),
+    "the completed session is missing from the card",
+  );
+  expect(
+    "the card never claims a transcript for a call that has none",
+    !page.body.includes("No transcript was recorded for this call."),
+    "the empty-transcript placeholder was rendered",
   );
 }
 
@@ -665,6 +720,55 @@ async function webhookAuth() {
 
 // ---------------------------------------------------------------------------
 
+async function sweep() {
+  expect(
+    "the gate's caller number is stable, so a crashed run's rows stay reachable",
+    CALLER_PHONE === RESERVED_CALLER_PHONE,
+    CALLER_PHONE,
+  );
+
+  const prisma = await database();
+  // Simulate the rows a run killed by SIGKILL leaves behind: created in the DB, never cleaned.
+  const orphan = await prisma.voiceTestSession.create({
+    data: {
+      businessId: CLOUDPULSE,
+      demoPin: "0000",
+      judgePhone: CALLER_PHONE,
+      status: "completed",
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+  await prisma.ticket.create({
+    data: {
+      businessId: CLOUDPULSE,
+      externalMessageId: `voice:${orphan.id}`,
+      channel: "VOICE",
+      customerName: "Crashed gate run",
+      customerHandle: CALLER_PHONE,
+      customerQuery: "orphaned call",
+      state: "escalated",
+      specialistAssigned: "general",
+      intent: "voice_escalation",
+      sentiment: "frustrated",
+      urgencyScore: 85,
+      confidenceScore: 0,
+      actionStatus: "escalated",
+      routingRuleHit: "R1",
+      aiDraftOrReply: "",
+      citedChunkIds: "[]",
+    },
+  });
+
+  await deleteGateRows(prisma);
+  const leftoverSessions = await prisma.voiceTestSession.count({ where: { judgePhone: CALLER_PHONE } });
+  const leftoverTickets = await prisma.ticket.count({ where: { customerHandle: CALLER_PHONE } });
+  expect(
+    "the phone-keyed cleanup sweeps rows this run did not create",
+    leftoverSessions === 0 && leftoverTickets === 0,
+    `sessions ${leftoverSessions}, tickets ${leftoverTickets}`,
+  );
+}
+
 async function main() {
   if (EXTERNAL_BASE === null) {
     startServer();
@@ -672,6 +776,7 @@ async function main() {
   }
   process.stdout.write(`Phase 4 gate against ${BASE} (${RUN})\n`);
 
+  await group("sweep — a crashed run leaves nothing behind", sweep);
   await group("auth", auth);
   await group("session — one business, one PIN, ten minutes", startSessionGroup);
   await group("isolation — AT-05", isolation);
@@ -681,6 +786,7 @@ async function main() {
   await group("ungrounded completion — AT-09", ungroundedCompletion);
   await group("replay — AT-10", replay);
   await group("dashboard — the last call is on screen", dashboard);
+  await group("last call — an unrecorded call is not a completed one", lastCall);
   await group("webhook auth — AT-05, platform token", webhookAuth);
 
   // Later tasks append their groups above this line.

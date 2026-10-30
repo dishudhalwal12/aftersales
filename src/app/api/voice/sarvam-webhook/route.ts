@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     );
     const grounded = citations.length > 0;
     const decision = completionDecision({ escalate, grounded });
-    const escalationOutcome = completionOutcome({ escalate, status });
+    const escalationOutcome = completionOutcome({ escalate, status, grounded });
 
     try {
       const ticket = await prisma.$transaction(async (tx) => {

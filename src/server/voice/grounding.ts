@@ -36,8 +36,8 @@ const ANSWER_PREFIX = /^A\s*[:.)\-]\s*/i;
 
 /**
  * A caller must never hear their own question read back, so `Q:` lines are dropped and
- * `A:` markers are stripped before ranking. When nothing survives, the raw content is
- * spoken rather than nothing at all.
+ * `A:` markers are stripped before ranking. When nothing survives, there is nothing to say:
+ * an empty string here becomes an escalation upstream, never a raw chunk read aloud.
  */
 function spokenSentences(query: string, content: string, limit: number): string[] {
   const queryTokens = new Set(tokenize(query));
@@ -48,10 +48,7 @@ function spokenSentences(query: string, content: string, limit: number): string[
     .map((sentence) => sentence.replace(ANSWER_PREFIX, "").trim())
     .filter((sentence) => sentence.length > 0);
 
-  if (sentences.length === 0) {
-    const raw = content.replace(/\s+/g, " ").trim();
-    return raw.length === 0 ? [] : [raw];
-  }
+  if (sentences.length === 0) return [];
 
   const ranked = sentences
     .map((sentence, position) => {
@@ -127,10 +124,21 @@ export function groundVoiceAnswer(
     .filter((sentence) => sentence.length > 0)
     .join(" ");
 
+  if (facts.length === 0) {
+    // Nothing speakable survived: an answer made only of questions is not an answer, and a
+    // citation without a spoken fact would be a citation to nothing.
+    return {
+      groundedFacts: UNGROUNDED_REPLY,
+      citedChunkIds: [],
+      confidenceScore,
+      escalateToHuman: true,
+    };
+  }
+
   return {
-    groundedFacts: facts.length > 0 ? facts : UNGROUNDED_REPLY,
+    groundedFacts: facts,
     citedChunkIds: selected.map((chunk) => chunk.id),
     confidenceScore,
-    escalateToHuman: facts.length === 0,
+    escalateToHuman: false,
   };
 }
