@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../server/db.ts";
 import { getCurrentUser } from "../../../../server/auth/session.ts";
+import { completionOutcome } from "../../../../server/voice/session-state.ts";
 import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
@@ -59,11 +60,7 @@ export async function POST(request: Request) {
     const citations = parseCitations(body["citedChunkIds"]);
     const interactionId = typeof body["interactionId"] === "string" ? body["interactionId"] : null;
 
-    const escalationOutcome = escalate
-      ? "escalated_to_owner"
-      : status === "failed"
-        ? "call_failed"
-        : "resolved_by_ai";
+    const escalationOutcome = completionOutcome({ escalate, status });
 
     await prisma.voiceTestSession.update({
       where: { id: session.id },

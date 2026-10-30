@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       throw new HttpError(410, "this voice session has expired — start a new call");
     }
 
-    if (session.status === "initiated" || session.status === "ringing" || session.status === "test_mode") {
+    if (session.status === "initiated" || session.status === "ringing") {
       await prisma.voiceTestSession.update({
         where: { id: session.id },
         data: { status: "in_progress" },

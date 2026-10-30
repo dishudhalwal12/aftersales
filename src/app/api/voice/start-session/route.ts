@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../server/db.ts";
 import { placeOutboundCall, buildCallVariables, generateDemoPin, sarvamStatus } from "../../../../server/voice/sarvam.ts";
+import { callPlacementStatus } from "../../../../server/voice/session-state.ts";
 import {
   HttpError,
   errorResponse,
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
       variables: buildCallVariables(business),
     });
 
-    const status = call.mode === "dry_run" ? "test_mode" : call.ok ? "initiated" : "failed";
+    const status = callPlacementStatus(call, "initiated");
     const updated = await prisma.voiceTestSession.update({
       where: { id: session.id },
       data: { status, sarvamInteractionId: call.interactionId },

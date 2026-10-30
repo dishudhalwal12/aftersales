@@ -143,7 +143,7 @@ export function VoiceTestPanel({
         {session !== null && (
           <div className="fade-in" style={{ marginTop: 18 }}>
             <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
-              <div className="voice-stepper">
+              <div className="voice-stepper" data-voice-status={session.status}>
                 {STEPS.map((step, index) => {
                   const activeIndex = STEPS.indexOf((stage ?? "initiated") as (typeof STEPS)[number]);
                   return (
@@ -162,7 +162,11 @@ export function VoiceTestPanel({
                     </span>
                   );
                 })}
-                {stage === "test_mode" && <span className="vs" data-active="true">test mode — no call placed</span>}
+                {session.callMode === "dry_run" && (
+                  <span className="vs" data-active="true" data-dry-run="true">
+                    dry run — no call placed
+                  </span>
+                )}
               </div>
               <span className="tiny muted mono">{session.sessionId.slice(0, 14)}</span>
             </div>
