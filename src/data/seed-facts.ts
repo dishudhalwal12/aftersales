@@ -77,9 +77,8 @@ export const BUSINESS_C: SeedBusiness = {
   },
 };
 
-export const DEMO_EMAIL = "judge@demo.aftersales.ai";
+export { DEMO_EMAIL, DEMO_PASSWORD } from "./demo-account.ts";
 export const RIVAL_EMAIL = "owner@nimbus.example";
-export const DEMO_PASSWORD = "judge-demo-41";
 
 export interface SeedTicket {
   externalId: string;

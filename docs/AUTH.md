@@ -59,3 +59,29 @@ curl -sS -D - -o /dev/null \
 
 A correct setup answers `302` to `accounts.google.com` with `redirect_uri` = URL 1 and
 `redirect_to` = URL 2. Anything else means one of the three boxes is wrong.
+
+---
+
+## Judge demo login
+
+`POST /api/auth/judge-demo` is the "1-Click Judge Demo Login" button on `/auth` (a plain form post,
+no client JS). It signs in exactly one account:
+
+| | |
+|---|---|
+| email | `judge@demo.aftersales.ai` |
+| password (for the form, if you prefer typing) | `judge-demo-41` |
+| lands on | `/dashboard` when the account owns a business, `/onboarding` when it does not |
+
+The account is created on first use with that documented password, so a database that has not been
+seeded still has a working door — it just lands on `/onboarding` instead of the queue. The route takes
+no parameters: there is nothing to point at another user.
+
+`JUDGE_DEMO_LOGIN=off` closes the door (the route answers `404`) for a deployment that should not
+offer it. Anything else leaves it open.
+
+The Phase 1 gate proves the whole round trip:
+
+```bash
+node --env-file=.env scripts/verify-phase1.mjs
+```

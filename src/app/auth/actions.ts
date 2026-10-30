@@ -19,8 +19,6 @@ import {
 import { createSupabaseServerClient } from "../../server/auth/supabase/server.ts";
 import { DATABASE_UNAVAILABLE_MESSAGE, isDatabaseUnavailable } from "../../server/db-errors.ts";
 
-const DEMO_EMAIL = "judge@demo.aftersales.ai";
-
 function field(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -97,26 +95,6 @@ export async function signUpAction(
     await startSession(user.id);
     redirect(await postAuthPath(user.id));
   });
-}
-
-/**
- * One-click judge login. The demo account is created on first use so a fresh
- * database is never a dead end; it owns the seeded businesses when the seed ran.
- */
-export async function demoLoginAction(): Promise<void> {
-  const email = DEMO_EMAIL;
-  const user =
-    (await prisma.user.findUnique({ where: { email } })) ??
-    (await prisma.user.create({
-      data: {
-        email,
-        name: "Judge Demo",
-        passwordHash: hashPassword(crypto.randomUUID()),
-      },
-    }));
-
-  await startSession(user.id);
-  redirect(await postAuthPath(user.id));
 }
 
 export async function googleSignInAction(): Promise<AuthState> {

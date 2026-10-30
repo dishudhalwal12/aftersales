@@ -107,6 +107,31 @@ async function group(name, run) {
   }
 }
 
+async function post(path, body) {
+  const response = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    redirect: "manual",
+    headers: body === undefined ? {} : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  return { status: response.status, body: text, headers: response.headers };
+}
+
+function sessionCookie(headers) {
+  const cookies = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [];
+  const session = cookies.find((cookie) => cookie.startsWith("as_session="));
+  return session === undefined ? null : session.split(";")[0];
+}
+
+async function getWithCookie(path, cookie) {
+  const response = await fetch(`${BASE}${path}`, {
+    redirect: "manual",
+    headers: { cookie },
+  });
+  return { status: response.status, body: await response.text(), headers: response.headers };
+}
+
 async function landing() {
   const page = await get("/");
   expect("GET / returns 200", page.status === 200, `status ${page.status}`);
@@ -122,6 +147,31 @@ async function landing() {
   expectExcludes(page.body, "Go to dashboard");
 }
 
+async function auth() {
+  const signIn = await post("/api/auth/judge-demo");
+  expect("POST /api/auth/judge-demo returns 303", signIn.status === 303, `status ${signIn.status}`);
+  expect(
+    "the judge demo redirect lands on /dashboard",
+    (signIn.headers.get("location") ?? "").endsWith("/dashboard"),
+    signIn.headers.get("location") ?? "no location header",
+  );
+
+  const cookie = sessionCookie(signIn.headers);
+  expect("the judge demo sets an as_session cookie", cookie !== null, cookie === null ? "no session cookie" : "set");
+  if (cookie === null) return;
+
+  const dashboard = await getWithCookie("/dashboard", cookie);
+  expect("GET /dashboard with the demo cookie returns 200", dashboard.status === 200, `status ${dashboard.status}`);
+  expectIncludes(dashboard.body, "Live queue", "the dashboard renders the Live queue tab");
+
+  const home = await getWithCookie("/", cookie);
+  expectIncludes(home.body, "Go to dashboard", "the landing page knows a session exists");
+  expectExcludes(home.body, "Get started", "the signed-out CTA is gone for a session");
+
+  const authPage = await get("/auth");
+  expectIncludes(authPage.body, "1-click judge demo login", "the auth page shows the judge demo panel");
+}
+
 async function main() {
   if (!existsSync(NEXT_BIN)) {
     process.stderr.write(`next binary not found at ${NEXT_BIN}\n`);
@@ -133,6 +183,7 @@ async function main() {
   try {
     await waitForServer();
     await group("landing", landing);
+    await group("auth", auth);
   } finally {
     stopServer();
     logStream.end();

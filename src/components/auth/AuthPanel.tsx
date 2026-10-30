@@ -144,6 +144,19 @@ export function AuthPanel({ notice = null }: { notice?: string | null }) {
         </button>
       </form>
 
+      <form method="post" action="/api/auth/judge-demo" className="auth-demo" id="judge-demo">
+        <div className="auth-demo-copy">
+          <p className="auth-demo-title">1-click judge demo login</p>
+          <p className="auth-demo-note">
+            Opens the seeded demo owner — CloudPulse CRM and Jaipur Smile Studio — and lands in the
+            queue.
+          </p>
+        </div>
+        <button className="auth-demo-open" type="submit">
+          Open &rarr;
+        </button>
+      </form>
+
       <p className="auth-note">
         Google sign-in goes through Supabase; with no keys configured the button says so instead of
         failing silently. No secret is ever bundled into the client.

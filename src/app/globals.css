@@ -1215,7 +1215,7 @@ pre,
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: var(--auth-blue);
+  background: #0a0a0a;
 }
 
 .auth-form {
@@ -1250,7 +1250,7 @@ pre,
 }
 .auth-input:focus {
   border-color: var(--auth-blue);
-  box-shadow: 0 0 0 3px rgba(24, 17, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(14, 107, 95, 0.12);
 }
 
 .auth-btn {
@@ -1276,20 +1276,20 @@ pre,
 }
 
 .auth-btn-primary {
-  background: var(--auth-blue);
+  background: #0a0a0a;
   color: #fff;
 }
 .auth-btn-primary:hover {
-  background: #0f0ac4;
+  background: #26262b;
 }
 
 .auth-btn-google {
   background: #fff;
-  color: var(--auth-blue);
-  border-color: var(--auth-blue);
+  color: #0a0a0a;
+  border-color: rgba(0, 0, 0, 0.22);
 }
 .auth-btn-google:hover {
-  background: rgba(24, 17, 255, 0.06);
+  background: #f4f4f1;
 }
 
 .auth-divider {
@@ -1329,6 +1329,58 @@ pre,
   font-size: 12px;
   line-height: 1.55;
   color: var(--auth-muted);
+}
+
+/* judge path — teal tint, not black (design deck slide 06) */
+.auth-demo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: #eaf6f2;
+}
+
+.auth-demo-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.auth-demo-note {
+  margin: 5px 0 0;
+  max-width: 36ch;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--auth-muted);
+}
+
+.auth-demo-open {
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 20px;
+  background: var(--auth-blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 540;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease-out;
+}
+.auth-demo-open:hover {
+  background: #0a544b;
+}
+
+@media (max-width: 520px) {
+  .auth-demo {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
 }
 
 @media (max-width: 900px) {
