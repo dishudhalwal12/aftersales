@@ -1034,9 +1034,7 @@ pre,
 }
 
 /* ==========================================================================
-   Auth — wears the landing replica's skin (localhost:3000/ is that page now).
-   Tokens taken from public/landing: paper white, ink black, #1811FF blue,
-   #FF2974 pink, and the theme's Font1 serif.
+   Auth — the same paper, ink and petrol as the landing page (design deck slide 06).
    ========================================================================== */
 
 @font-face {
@@ -1072,8 +1070,8 @@ pre,
 }
 
 .auth-view {
-  --auth-blue: #1811ff;
-  --auth-pink: #ff2974;
+  --auth-blue: #0e6b5f;
+  --auth-pink: #12a594;
   --auth-line: rgba(0, 0, 0, 0.12);
   --auth-muted: #6f6f6f;
   min-height: 100dvh;
@@ -1318,10 +1316,10 @@ pre,
   gap: 9px;
   margin: 0 0 14px;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 41, 116, 0.45);
+  border: 1px solid rgba(239, 68, 68, 0.45);
   border-radius: 8px;
-  background: rgba(255, 41, 116, 0.07);
-  color: #a30045;
+  background: rgba(239, 68, 68, 0.07);
+  color: #991b1b;
   font-size: 13px;
   line-height: 1.45;
 }

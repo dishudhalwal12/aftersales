@@ -13,8 +13,9 @@ const PROOF = [
 
 /**
  * Sign-in, in the landing page's own language: paper white, ink black, the
- * theme's serif, and the site's blue (#1811FF) for actions. `/` is the mirrored
- * landing page, so this screen is what its "Go to Dashboard" button opens.
+ * design deck's petrol teal, and the display serif. `/` is our own landing page
+ * (`src/app/page.tsx`); this screen is what its "Sign in" and "Get started"
+ * controls open.
  */
 export default async function AuthPage({
   searchParams,

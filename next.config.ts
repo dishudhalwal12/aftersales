@@ -8,14 +8,10 @@ const nextConfig: NextConfig = {
     extensionAlias: { ".js": [".ts", ".tsx", ".js"] },
   },
   async rewrites() {
-    // A rewrite, not a redirect: the browser keeps `/` in the address bar while
-    // the static page is served from its real path. The mirror's assets are
-    // referenced from the site root (`/landing/assets/...`) for exactly this
-    // reason — relative paths would resolve against `/` and 404.
-    return [
-      { source: "/", destination: "/landing/index.html" },
-      { source: "/landing", destination: "/landing/index.html" },
-    ];
+    // `/` is our own landing page (src/app/page.tsx). `/landing` still serves the saved
+    // reference snapshot, whose assets are referenced from the site root
+    // (`/landing/assets/...`) — it is a design reference, not the product.
+    return [{ source: "/landing", destination: "/landing/index.html" }];
   },
 };
 

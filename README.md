@@ -48,7 +48,7 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # 107 tests, native runner, no test dependencies
+npm test             # 120 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build
 npm run db:reset     # wipe and re-seed
@@ -74,13 +74,13 @@ behind it.** Last verified: **2026-10-30, against a production build.**
 | Capability | Status | What is behind it |
 |---|---|---|
 | R1–R7 routing engine, fail-safe ordering | **REAL** | 25 routing tests incl. the 49/50 boundary, urgency 80, R7 |
-| Business brain: compile → chunk → cite | **REAL** | `src/lib/rag.ts`, chunk ids visible in the UI (`chk_cp_02` = pricing) |
+| Business brain: compile → chunk → cite | **REAL** | `src/server/ai/rag.ts`, chunk ids visible in the UI (`chk_cp_02` = pricing) |
 | Business-scoped retrieval (BM25) | **REAL** | cross-tenant tests + live 403 on another owner's `businessId` |
 | 4-step onboarding → versioned brain | **REAL** | `POST /api/businesses`, `PATCH …/brain` bumps `brainVersion` and re-chunks |
 | Live queue + ticket drawer + event trail | **REAL** | append-only `TicketEvent` rows rendered per ticket |
 | Approve draft / resolve escalation | **REAL** | human-only exits; the agent has no `escalated → replied` path |
 | Webhook idempotency | **REAL** | unique `externalMessageId`; replay returns the same `ticketId` with `duplicate: true` |
-| Weekly sentiment + recurring complaints | **REAL** | `src/lib/insights.ts`, 9 aggregation tests |
+| Weekly sentiment + recurring complaints | **REAL** | `src/server/business/insights.ts`, 9 aggregation tests |
 | Voice session, PIN binding, mid-call retrieval, write-back | **REAL** | `start-session` → `sarvam-tool-search` → `sarvam-webhook` |
 | LLM classifier | **CONDITIONAL** | OpenRouter when `OPENROUTER_API_KEY` is set; otherwise a labelled **offline** retrieval classifier |
 | The offline classifier | **REAL, LABELLED** | BM25 coverage score, extractive answers. The dashboard shows a persistent banner and the API returns `degraded: true` |
@@ -114,6 +114,18 @@ telephony leg in this deployment, payment processing, or customer logins (only t
 ```
 
 Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Pages
+
+| Route | What it is |
+|---|---|
+| `/` | Our landing page (`src/app/page.tsx`): hero video slot, the three steps, the R1–R7 rule strip |
+| `/auth` | Sign in, create account, Continue with Google, 1-click judge demo |
+| `/onboarding` | 4-step wizard, `.md` upload, the two seeded presets |
+| `/dashboard` | Four panels: queue, voice, brain & insights, channels |
+| `/landing` | The saved design reference (`public/landing`, a static snapshot) — reachable, but not the product |
 
 ---
 
