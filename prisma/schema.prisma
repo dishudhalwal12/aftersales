@@ -83,7 +83,9 @@ model Ticket {
   id                 String        @id @default(cuid())
   businessId         String
   business           Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  externalMessageId  String?       @unique
+  // Provider message ids are tenant-scoped: a global unique key lets one tenant's replay read
+  // another tenant's ticket (AT-05). Idempotency is the pair, never the raw id alone.
+  externalMessageId  String?
   channel            String
   customerName       String
   customerHandle     String
@@ -104,6 +106,7 @@ model Ticket {
 
   @@index([businessId, state])
   @@index([businessId, createdAt])
+  @@unique([businessId, externalMessageId])
 }
 
 model TicketEvent {

@@ -42,6 +42,8 @@ const logStream = createWriteStream(serverLog, { flags: "a" });
 let server = null;
 let db = null;
 let judgeCookie = null;
+/** Tickets created without a `gate3-` external id (the text tool) — removed by id in cleanup. */
+const createdTicketIds = new Set();
 const results = [];
 
 async function database() {
@@ -172,6 +174,10 @@ async function cleanup() {
   }
   try {
     await prisma.ticket.deleteMany({ where: { externalMessageId: { startsWith: "gate3-" } } });
+    if (createdTicketIds.size > 0) {
+      await prisma.ticket.deleteMany({ where: { id: { in: [...createdTicketIds] } } });
+      createdTicketIds.clear();
+    }
   } catch (error) {
     problems.push(`could not delete gate tickets: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -299,6 +305,70 @@ async function idempotency() {
     "AT-10: one response — exactly four events on the ticket",
     Array.isArray(detail?.events) && detail.events.length === 4,
     `${Array.isArray(detail?.events) ? detail.events.length : "no"} events`,
+  );
+}
+
+async function crossTenantIdempotency() {
+  const externalMessageId = `${RUN}-cross`;
+  const prisma = await database();
+  const rival = await prisma.business.findUnique({ where: { id: RIVAL } });
+  expect("the rival tenant exists (seed ran)", rival !== null, `${RIVAL} not found`);
+  if (rival === null) return;
+
+  // The rival receives a message whose id the judge's next delivery will reuse.
+  const { respondToContact } = await import("../src/server/business/service.ts");
+  const nimbus = await respondToContact({
+    business: rival,
+    channel: "GMAIL",
+    customerName: "Nimbus customer",
+    customerHandle: "customer@nimbus.example",
+    query: "What is your refund policy?",
+    externalMessageId,
+  });
+  expect("the rival's own delivery is created", nimbus.duplicate === false, `duplicate ${nimbus.duplicate}`);
+
+  const posted = await post(
+    "/api/channels/webhook/whatsapp",
+    {
+      businessId: CLOUDPULSE,
+      externalMessageId,
+      customerName: "Gate Judge",
+      customerHandle: "+910000000002",
+      query: "What is the price of the Pro Plan?",
+    },
+    judgeCookie,
+  );
+  expect("the judge's delivery returns 200", posted.status === 200, `status ${posted.status}`);
+  const answer = parseJson(posted.body);
+  if (answer === null) {
+    expect("the judge's delivery returns JSON", false, posted.body.slice(0, 160));
+    return;
+  }
+
+  expect("AT-05: the delivery is not a duplicate of another tenant's id", answer.duplicate === false, `duplicate ${answer.duplicate}`);
+  expect(
+    "AT-05: the delivery resolves to the session's tenant",
+    answer.businessId === CLOUDPULSE,
+    `businessId ${answer.businessId}`,
+  );
+  expect(
+    "AT-05: the delivery never returns the other tenant's ticket",
+    answer.ticketId !== nimbus.ticketId,
+    `ticketId ${answer.ticketId} == rival ${nimbus.ticketId}`,
+  );
+  expect(
+    "AT-05: the delivery never leaks the other tenant's answer",
+    !String(answer.answer).includes("No refunds after the first 24 hours"),
+    String(answer.answer).slice(0, 80),
+  );
+
+  const own = await prisma.ticket.count({ where: { businessId: CLOUDPULSE, externalMessageId } });
+  expect("the judge's tenant owns its own ticket row", own === 1, `rows ${own}`);
+  const rivalRow = await prisma.ticket.findUnique({ where: { id: nimbus.ticketId } });
+  expect(
+    "the rival's ticket is untouched",
+    rivalRow?.businessId === RIVAL && rivalRow?.customerQuery === "What is your refund policy?",
+    JSON.stringify(rivalRow?.businessId),
   );
 }
 
@@ -456,6 +526,7 @@ async function textQuery() {
     return;
   }
   expect("AT-09: the grounded answer is sent", answer.actionStatus === "answered", String(answer.actionStatus));
+  if (typeof answer.ticketId === "string") createdTicketIds.add(answer.ticketId);
   expect(
     "AT-09: the answer cites at least one chunk",
     Array.isArray(answer.sources) && answer.sources.length > 0,
@@ -504,6 +575,7 @@ async function main() {
     await group("channels state", channelState);
     await group("surface", surface);
     await group("idempotency (AT-10)", idempotency);
+    await group("cross-tenant idempotency (AT-05)", crossTenantIdempotency);
     await group("R5 draft-only", draftOnlyR5);
     await group("escalation + resolve (R1)", escalation);
     await group("insights", insights);

@@ -272,10 +272,15 @@ export async function respondToContact(
       classifierError: orchestration.ok ? null : orchestration.error,
     };
   } catch (error) {
-    // AT-10: the unique index on externalMessageId is the idempotency key.
+    // AT-10: the unique index on (businessId, externalMessageId) is the idempotency key.
     if (isUniqueViolation(error) && contact.externalMessageId) {
       const existing = await prisma.ticket.findUnique({
-        where: { externalMessageId: contact.externalMessageId },
+        where: {
+          businessId_externalMessageId: {
+            businessId: contact.business.id,
+            externalMessageId: contact.externalMessageId,
+          },
+        },
       });
       if (existing) return toDuplicateResult(existing, provider, degraded);
     }
