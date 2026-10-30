@@ -1,0 +1,131 @@
+// Prisma schema — PRD rev 4 §3, plus one additive column noted inline.
+// SQLite for the hackathon; swap `provider` to "postgresql" without touching models.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String?
+  passwordHash String?
+  googleId     String?
+  createdAt    DateTime   @default(now())
+  businesses   Business[]
+}
+
+model Business {
+  id               String              @id @default(cuid())
+  ownerId          String
+  owner            User                @relation(fields: [ownerId], references: [id])
+  name             String
+  businessType     String
+  description      String
+  productsServices String
+  hours            String
+  returnPolicy     String
+  faqs             String
+  escalationEmail  String
+  escalationPhone  String
+  agentTone        String              @default("Warm, concise, and helpful")
+  autoSendEnabled  Boolean             @default(true)
+  compiledBrainMd  String
+  brainVersion     Int                 @default(1)
+  // ADDITIVE (not in PRD §3): the wizard's .md upload is a first-class input,
+  // so it is persisted instead of being silently folded into another column.
+  rawMarkdownUpload String              @default("")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  chunks           KnowledgeChunk[]
+  channels         ChannelConnection[]
+  tickets          Ticket[]
+  voiceSessions    VoiceTestSession[]
+}
+
+model KnowledgeChunk {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  section    String
+  content    String
+  keywords   String
+  createdAt  DateTime @default(now())
+
+  @@index([businessId])
+}
+
+model ChannelConnection {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  channelType String
+  status      String
+  autoSend    Boolean  @default(false)
+  configJson  String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([businessId, channelType])
+}
+
+model Ticket {
+  id                 String        @id @default(cuid())
+  businessId         String
+  business           Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  externalMessageId  String?       @unique
+  channel            String
+  customerName       String
+  customerHandle     String
+  customerQuery      String
+  state              String
+  specialistAssigned String
+  intent             String
+  sentiment          String
+  urgencyScore       Int
+  confidenceScore    Int
+  actionStatus       String
+  routingRuleHit     String
+  aiDraftOrReply     String
+  citedChunkIds      String
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  events             TicketEvent[]
+
+  @@index([businessId, state])
+  @@index([businessId, createdAt])
+}
+
+model TicketEvent {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  eventType String
+  payload   String
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model VoiceTestSession {
+  id                  String   @id @default(cuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  demoPin             String
+  judgePhone          String
+  status              String
+  sarvamInteractionId String?
+  transcript          String?
+  durationSeconds     Int?
+  escalationOutcome   String?
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+
+  @@index([businessId])
+  @@index([judgePhone, status])
+}

@@ -15,3 +15,13 @@ coverage/
 
 # OS noise
 .DS_Store
+
+# sqlite database + next build output
+prisma/*.db
+prisma/*.db-journal
+next-env.d.ts
+.next/
+*.tsbuildinfo
+
+# a saved reference page, not part of the app
+landingpage.it/
