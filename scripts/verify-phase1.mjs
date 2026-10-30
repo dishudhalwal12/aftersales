@@ -14,7 +14,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, createWriteStream } from "node:fs";
+import { existsSync, mkdtempSync, createWriteStream, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -32,8 +32,45 @@ const logStream = createWriteStream(serverLog, { flags: "a" });
 let server = null;
 const results = [];
 
+/** Rows this run created; removed in `finally` so the seed state survives a gate run. */
+let createdBusinessId = null;
+let createdUserId = null;
+let db = null;
+
+async function database() {
+  if (db === null) db = (await import("../src/server/db.ts")).prisma;
+  return db;
+}
+
+async function authHelpers() {
+  return import("../src/server/auth/crypto.ts");
+}
+
+async function cookieFor(userId) {
+  const { SESSION_COOKIE, signSessionToken } = await authHelpers();
+  return `${SESSION_COOKIE}=${signSessionToken(userId)}`;
+}
+
+async function cleanup() {
+  try {
+    const prisma = await database();
+    if (createdBusinessId !== null) {
+      await prisma.business.delete({ where: { id: createdBusinessId } }).catch(() => {});
+      createdBusinessId = null;
+    }
+    if (createdUserId !== null) {
+      await prisma.user.delete({ where: { id: createdUserId } }).catch(() => {});
+      createdUserId = null;
+    }
+    await prisma.$disconnect();
+  } catch {
+    // the gate's verdict does not depend on cleanup succeeding
+  }
+}
+
 function expect(label, ok, detail = "") {
-  results.push({ label, ok: Boolean(ok), detail });
+  // A passing check keeps its label only: a "why it failed" note on a green line reads as a defect.
+  results.push({ label, ok: Boolean(ok), detail: ok ? "" : detail });
 }
 
 function expectIncludes(body, needle, label = `body contains ${JSON.stringify(needle)}`) {
@@ -107,11 +144,14 @@ async function group(name, run) {
   }
 }
 
-async function post(path, body) {
+async function post(path, body, cookie) {
+  const headers = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (cookie !== undefined) headers.cookie = cookie;
   const response = await fetch(`${BASE}${path}`, {
     method: "POST",
     redirect: "manual",
-    headers: body === undefined ? {} : { "content-type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
@@ -158,7 +198,7 @@ async function auth() {
 
   const cookie = sessionCookie(signIn.headers);
   expect("the judge demo sets an as_session cookie", cookie !== null, cookie === null ? "no session cookie" : "set");
-  if (cookie === null) return;
+  if (cookie === null) return null;
 
   const dashboard = await getWithCookie("/dashboard", cookie);
   expect("GET /dashboard with the demo cookie returns 200", dashboard.status === 200, `status ${dashboard.status}`);
@@ -170,6 +210,142 @@ async function auth() {
 
   const authPage = await get("/auth");
   expectIncludes(authPage.body, "1-click judge demo login", "the auth page shows the judge demo panel");
+
+  return cookie;
+}
+
+async function healthAndDocs() {
+  const health = await get("/api/health");
+  expect("GET /api/health returns 200", health.status === 200, `status ${health.status}`);
+  let body = null;
+  try {
+    body = JSON.parse(health.body);
+  } catch {
+    body = null;
+  }
+  expect("health reports status ok", body !== null && body.status === "ok", health.body.slice(0, 120));
+
+  const spike = readFileSync(join(ROOT, "docs", "spikes", "SARVAM.md"), "utf8");
+  expect("SARVAM.md carries a verdict", /verdict/i.test(spike), "no verdict line");
+  expect(
+    "SARVAM.md verdict is GREEN or RED",
+    /\bGREEN\b|\bRED\b/.test(spike),
+    "no GREEN/RED word",
+  );
+}
+
+async function contracts(judgeCookie) {
+  const created = await post(
+    "/api/businesses",
+    {
+      name: `Gate Test ${Date.now()}`,
+      businessType: "SaaS",
+      description: "A business the Phase 1 gate creates and removes.",
+      productsServices: "Starter: ₹499/mo for one user. Pro: ₹1,499/mo for five users.",
+      hours: "Monday to Saturday, 9:00 AM to 7:00 PM IST.",
+      returnPolicy: "Full refund within 7 days if fewer than 10 invoices were generated.",
+      faqs: "Q: How do I export GSTR-1? A: Go to Reports > GST > Export JSON.",
+      escalationEmail: "gate@example.com",
+      escalationPhone: "+919876543210",
+      agentTone: "Clear and helpful",
+    },
+    judgeCookie,
+  );
+
+  expect("POST /api/businesses returns 201", created.status === 201, `status ${created.status}`);
+  let payload = null;
+  try {
+    payload = JSON.parse(created.body);
+  } catch {
+    payload = null;
+  }
+  if (payload === null || typeof payload.businessId !== "string") {
+    expect("the create response carries a businessId", false, created.body.slice(0, 160));
+    return;
+  }
+  createdBusinessId = payload.businessId;
+
+  expect("a new brain starts at version 1", payload.brainVersion === 1, `brainVersion ${payload.brainVersion}`);
+  expect("onboarding compiles at least one chunk", Number(payload.chunkCount) > 0, `chunkCount ${payload.chunkCount}`);
+
+  const brain = await getWithCookie(`/api/businesses/${payload.businessId}/brain`, judgeCookie);
+  expect("GET /brain returns 200", brain.status === 200, `status ${brain.status}`);
+  let brainBody = null;
+  try {
+    brainBody = JSON.parse(brain.body);
+  } catch {
+    brainBody = null;
+  }
+  if (brainBody === null) {
+    expect("the brain response is JSON", false, brain.body.slice(0, 160));
+    return;
+  }
+
+  expect(
+    "the persisted chunk count matches the create response",
+    brainBody.chunkCount === payload.chunkCount,
+    `${brainBody.chunkCount} vs ${payload.chunkCount}`,
+  );
+  expect(
+    "every chunk has a citable id and a section",
+    Array.isArray(brainBody.chunks) &&
+      brainBody.chunks.length > 0 &&
+      brainBody.chunks.every(
+        (chunk) => typeof chunk.chunkId === "string" && chunk.chunkId.length > 0 && typeof chunk.section === "string",
+      ),
+    `${Array.isArray(brainBody.chunks) ? brainBody.chunks.length : "no"} chunks`,
+  );
+  expect(
+    "the compiled brain carries the business name",
+    typeof brainBody.compiledBrainMd === "string" && brainBody.compiledBrainMd.includes(payload.name),
+    "name missing from compiledBrainMd",
+  );
+}
+
+async function tenancy(judgeCookie) {
+  const forbidden = await getWithCookie("/api/businesses/biz_nimbus_03/brain", judgeCookie);
+  expect("AT-05: another tenant's brain answers 403", forbidden.status === 403, `status ${forbidden.status}`);
+
+  const prisma = await database();
+  const rival = await prisma.user.findUnique({ where: { email: "owner@nimbus.example" } });
+  expect("the rival tenant exists (seed ran)", rival !== null, "owner@nimbus.example not found");
+  if (rival === null) return;
+
+  const rivalCookie = await cookieFor(rival.id);
+  const own = await getWithCookie("/api/businesses/biz_nimbus_03/brain", rivalCookie);
+  expect("the rival reads their own brain", own.status === 200, `status ${own.status}`);
+}
+
+async function redirect(judgeCookie) {
+  const prisma = await database();
+  const { hashPassword } = await authHelpers();
+  const fresh = await prisma.user.create({
+    data: {
+      email: `gate-fresh-${Date.now()}@example.com`,
+      name: "Gate Fresh",
+      passwordHash: hashPassword("gate-password-41"),
+    },
+  });
+  createdUserId = fresh.id;
+
+  const freshCookie = await cookieFor(fresh.id);
+  const dashboard = await getWithCookie("/dashboard", freshCookie);
+  expect(
+    "AT-01: a user with no business is redirected from /dashboard",
+    dashboard.status === 307 || dashboard.status === 302 || dashboard.status === 303,
+    `status ${dashboard.status}`,
+  );
+  expect(
+    "AT-01: that redirect goes to /onboarding",
+    (dashboard.headers.get("location") ?? "").endsWith("/onboarding"),
+    dashboard.headers.get("location") ?? "no location header",
+  );
+
+  const queue = await getWithCookie("/dashboard?tab=queue", judgeCookie);
+  expect("GET /dashboard?tab=queue returns 200", queue.status === 200, `status ${queue.status}`);
+  for (const label of ["Live queue", "Voice test", "Business brain", "Channels"]) {
+    expectIncludes(queue.body, label, `the dashboard renders the ${label} tab`);
+  }
 }
 
 async function main() {
@@ -183,9 +359,14 @@ async function main() {
   try {
     await waitForServer();
     await group("landing", landing);
-    await group("auth", auth);
+    const judgeCookie = await auth();
+    await group("health + docs", healthAndDocs);
+    await group("contracts (AT-02)", () => contracts(judgeCookie));
+    await group("tenancy (AT-05)", () => tenancy(judgeCookie));
+    await group("redirect + surface (AT-01)", () => redirect(judgeCookie));
   } finally {
     stopServer();
+    await cleanup();
     logStream.end();
   }
 

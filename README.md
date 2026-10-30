@@ -51,6 +51,7 @@ Or the shortcuts:
 npm test             # 120 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build
+npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
 npm run db:reset     # wipe and re-seed
 ```
 
