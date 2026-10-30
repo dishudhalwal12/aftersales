@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "../../../../server/db.ts";
 import { loadBusinessChunks } from "../../../../server/business/service.ts";
 import { searchMarkdownRag } from "../../../../server/ai/rag.ts";
+import { UNGROUNDED_REPLY, groundVoiceAnswer } from "../../../../server/voice/grounding.ts";
 import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,10 @@ export const dynamic = "force-dynamic";
  *
  * Public by necessity (the voice platform calls it); the session id / PIN / phone
  * is the capability that scopes it to one business.
+ *
+ * The confidence floor is the text path's (PRD §0): `groundVoiceAnswer` refuses to
+ * answer below 50 or without a citation, so a caller cannot be read another
+ * business's price list just because a chunk matched one word.
  */
 export async function POST(request: Request) {
   try {
@@ -54,44 +59,19 @@ export async function POST(request: Request) {
 
     const chunks = await loadBusinessChunks(session.businessId);
     const hits = searchMarkdownRag(chunks, query, 4);
-    const top = hits[0];
-    const groundedFacts = top ? bestFact(query, top.content) : "";
-    const confidenceScore = top
-      ? Math.max(0, Math.min(95, Math.round((top.score / (top.score + 2)) * 100 + 35)))
-      : 0;
-    const escalateToHuman = top === undefined || confidenceScore < 50;
+    const grounding = groundVoiceAnswer(query, hits);
 
     return NextResponse.json({
       businessName: session.business.name,
-      groundedFacts: escalateToHuman
-        ? `I do not have a grounded answer for that. A human from ${session.business.name} can help.`
-        : groundedFacts,
-      citedChunkIds: top && !escalateToHuman ? [top.id] : [],
-      confidenceScore,
-      escalateToHuman,
+      groundedFacts: grounding.escalateToHuman
+        ? `${UNGROUNDED_REPLY} A human from ${session.business.name} can help.`
+        : grounding.groundedFacts,
+      citedChunkIds: grounding.citedChunkIds,
+      confidenceScore: grounding.confidenceScore,
+      escalateToHuman: grounding.escalateToHuman,
       sessionId: session.id,
     });
   } catch (error) {
     return errorResponse(error);
   }
-}
-
-function bestFact(query: string, content: string): string {
-  const queryTerms = query.toLowerCase().split(/\W+/).filter((term) => term.length > 2);
-  const sentences = content
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  let best = sentences[0] ?? "";
-  let bestScore = -1;
-  for (const sentence of sentences) {
-    const lower = sentence.toLowerCase();
-    const score = queryTerms.reduce((sum, term) => (lower.includes(term) ? sum + 1 : sum), 0);
-    if (score > bestScore) {
-      best = sentence;
-      bestScore = score;
-    }
-  }
-  return best;
 }
