@@ -17,8 +17,19 @@ import {
 const FILTERS = ["all", "new", "triaged", "escalated", "replied", "closed"] as const;
 type Filter = (typeof FILTERS)[number];
 
-export function LiveQueuePanel({ businessId }: { businessId: string }) {
-  const [filter, setFilter] = useState<Filter>("all");
+export function LiveQueuePanel({
+  businessId,
+  initialQuery = "",
+  initialState = "",
+}: {
+  businessId: string;
+  initialQuery?: string;
+  initialState?: string;
+}) {
+  const [filter, setFilter] = useState<Filter>(() =>
+    (FILTERS as readonly string[]).includes(initialState) ? (initialState as Filter) : "all",
+  );
+  const [query, setQuery] = useState(initialQuery);
   const [tickets, setTickets] = useState<TicketSummary[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TicketDetailResponse | null>(null);
@@ -88,6 +99,19 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
 
   const selected = detail?.ticket ?? tickets?.find((ticket) => ticket.ticketId === selectedId) ?? null;
 
+  const needle = query.trim().toLowerCase();
+  const visible =
+    tickets === null
+      ? null
+      : needle === ""
+        ? tickets
+        : tickets.filter((ticket) =>
+            [ticket.customerName, ticket.customerQuery, ticket.intent, ticket.customerHandle]
+              .join(" ")
+              .toLowerCase()
+              .includes(needle),
+          );
+
   return (
     <div>
       <div className="panel-head">
@@ -107,6 +131,28 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
           {error}
         </p>
       )}
+
+      <div className="queue-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.2" />
+          <path d="m15.6 15.6 3.4 3.4" />
+        </svg>
+        <label className="sr-only" htmlFor="queue-search-input">
+          Search this queue
+        </label>
+        <input
+          id="queue-search-input"
+          type="search"
+          value={query}
+          placeholder="Search tickets, customers, intents ..."
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {query !== "" && (
+          <button type="button" className="queue-search-clear" onClick={() => setQuery("")}>
+            Clear
+          </button>
+        )}
+      </div>
 
       <div className="filters">
         {FILTERS.map((entry) => (
@@ -139,7 +185,11 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
             />
           )}
 
-          {tickets?.map((ticket) => (
+          {visible !== null && visible.length === 0 && tickets !== null && tickets.length > 0 && (
+            <Empty title="No ticket matches that search" hint="Clear the search box to see the queue again." />
+          )}
+
+          {visible?.map((ticket) => (
             <button
               key={ticket.ticketId}
               type="button"

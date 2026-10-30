@@ -46,7 +46,7 @@ The original page's menu button is gone. In its place, pinned top-right where th
 single **Go to Dashboard** button:
 
 ```html
-<a class="button" href="http://localhost:3000/auth" …>Go to Dashboard</a>
+<a class="button" href="/auth" …>Go to Dashboard</a>
 ```
 
 It points at the app's `/auth` page, which is the flow that already handles all three cases: a signed-in

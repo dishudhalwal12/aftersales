@@ -124,10 +124,10 @@ export function BrainInsightsPanel({ businessId }: { businessId: string }) {
               >
                 {(
                   [
-                    ["positive", "#10B981"],
-                    ["neutral", "#A1A1AA"],
-                    ["frustrated", "#F59E0B"],
-                    ["distressed", "#EF4444"],
+                    ["positive", "#ec6a4b"],
+                    ["neutral", "#cfc8c1"],
+                    ["frustrated", "#e8a25c"],
+                    ["distressed", "#8d5a4a"],
                   ] as const
                 ).map(([key, colour]) => {
                   const value = insights.sentiment[key];
