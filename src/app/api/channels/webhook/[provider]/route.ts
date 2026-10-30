@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../../server/db.ts";
 import { respondToContact } from "../../../../../server/business/service.ts";
+import { channelForProvider, isWebhookTokenValid } from "../../../../../server/business/channel-webhook.ts";
 import {
   HttpError,
   errorResponse,
@@ -9,30 +10,31 @@ import {
   requireString,
   requireUser,
 } from "../../../../../server/auth/tenant.ts";
-import type { TicketChannel } from "../../../../../shared/domain.ts";
 
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ provider: string }> };
 
-const PROVIDER_CHANNEL: Readonly<Record<string, TicketChannel>> = {
-  whatsapp: "WHATSAPP",
-  instagram: "INSTAGRAM",
-  gmail: "GMAIL",
-};
-
 /**
  * POST /api/channels/webhook/[provider]
- * The inbound edge for the simulator and for a real adapter. Idempotency is the
- * unique index on `Ticket.externalMessageId`: the same payload twice is one
- * ticket and one decision (AT-10).
+ * The inbound edge for the simulator and for a real adapter. Two ways in:
+ *   - the owner's session (the dashboard simulator),
+ *   - `x-channel-token` matching CHANNEL_WEBHOOK_SECRET (a provider delivery).
+ * Idempotency is the unique index on (businessId, externalMessageId): the same payload twice is
+ * one ticket and one decision (AT-10), and a replay carrying another tenant's id is that
+ * tenant's own delivery (AT-05).
  */
 export async function POST(request: Request, context: Context) {
   try {
-    const user = await requireUser();
     const { provider } = await context.params;
-    const channel = PROVIDER_CHANNEL[provider.toLowerCase()];
+    const channel = channelForProvider(provider);
     if (!channel) throw new HttpError(404, `unknown channel provider: ${provider}`);
+
+    const platformAuthorised = isWebhookTokenValid(
+      process.env.CHANNEL_WEBHOOK_SECRET ?? "",
+      request.headers.get("x-channel-token") ?? "",
+    );
+    const user = platformAuthorised ? null : await requireUser();
 
     const body = await readJson(request);
     const businessId = requireString(body, "businessId", { max: 100 });
@@ -41,7 +43,10 @@ export async function POST(request: Request, context: Context) {
     const customerName = requireString(body, "customerName", { max: 120, optional: true });
     const customerHandle = requireString(body, "customerHandle", { max: 200, optional: true });
 
-    const business = await loadOwnedBusiness(user.id, businessId);
+    const business =
+      user !== null
+        ? await loadOwnedBusiness(user.id, businessId)
+        : await loadBusinessForProvider(businessId);
 
     const result = await respondToContact({
       business,
@@ -53,7 +58,7 @@ export async function POST(request: Request, context: Context) {
     });
 
     return NextResponse.json({
-      provider: provider.toLowerCase(),
+      provider: provider.trim().toLowerCase(),
       duplicate: result.duplicate,
       ticketId: result.ticketId,
       businessId: result.businessId,
@@ -77,7 +82,7 @@ export async function GET(request: Request, context: Context) {
   try {
     const user = await requireUser();
     const { provider } = await context.params;
-    const channel = PROVIDER_CHANNEL[provider.toLowerCase()];
+    const channel = channelForProvider(provider);
     if (!channel) throw new HttpError(404, `unknown channel provider: ${provider}`);
 
     const businessId = new URL(request.url).searchParams.get("businessId") ?? "";
@@ -88,16 +93,26 @@ export async function GET(request: Request, context: Context) {
     });
 
     return NextResponse.json({
-      provider: provider.toLowerCase(),
+      provider: provider.trim().toLowerCase(),
       channel,
       configured: connection !== null,
       status: connection?.status ?? "UNAVAILABLE",
       autoSend: connection?.autoSend ?? false,
-      transport: transportFor(provider.toLowerCase()),
+      transport: transportFor(provider.trim().toLowerCase()),
     });
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+/**
+ * A provider delivery carries its business id, but the platform token is not a tenant session:
+ * an unknown id is a 404, never a write under a guessed row.
+ */
+async function loadBusinessForProvider(businessId: string) {
+  const business = await prisma.business.findUnique({ where: { id: businessId } });
+  if (!business) throw new HttpError(404, "business not found");
+  return business;
 }
 
 function transportFor(provider: string): string {

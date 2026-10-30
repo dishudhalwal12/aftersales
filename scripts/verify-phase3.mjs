@@ -34,6 +34,13 @@ const CLOUDPULSE = "biz_cloudpulse_01";
 const CLINIC = "biz_jaipursmile_02";
 const RIVAL = "biz_nimbus_03";
 const RUN = `gate3-${Date.now()}`;
+/**
+ * The provider path is only real when a secret exists. A spawned server gets a generated one;
+ * an already-running server must have been started with `CHANNEL_WEBHOOK_SECRET` set.
+ */
+const WEBHOOK_SECRET =
+  (process.env.CHANNEL_WEBHOOK_SECRET ?? "").trim() ||
+  (EXTERNAL_BASE === null ? `gate3-secret-${process.pid}` : "");
 
 const logDir = mkdtempSync(join(tmpdir(), "aftersales-gate3-"));
 const serverLog = join(logDir, "next-dev.log");
@@ -109,7 +116,7 @@ function startServer() {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
-    env: { ...process.env, NODE_ENV: "development" },
+    env: { ...process.env, NODE_ENV: "development", CHANNEL_WEBHOOK_SECRET: WEBHOOK_SECRET },
   });
   server.stdout.pipe(logStream);
   server.stderr.pipe(logStream);
@@ -372,6 +379,65 @@ async function crossTenantIdempotency() {
   );
 }
 
+async function providerToken() {
+  if (WEBHOOK_SECRET.length === 0) {
+    expect(
+      "the gate knows the provider secret",
+      false,
+      "set CHANNEL_WEBHOOK_SECRET in the server's env for a VERIFY_BASE_URL run",
+    );
+    return;
+  }
+
+  const externalMessageId = `${RUN}-token`;
+  const payload = {
+    businessId: CLOUDPULSE,
+    externalMessageId,
+    customerName: "Provider Customer",
+    customerHandle: "provider@example.com",
+    query: "What is the price of the Pro Plan?",
+  };
+
+  const delivered = await post("/api/channels/webhook/gmail", payload, undefined, {
+    "x-channel-token": WEBHOOK_SECRET,
+  });
+  expect("a provider delivery without a session returns 200", delivered.status === 200, `status ${delivered.status}`);
+  const answer = parseJson(delivered.body);
+  if (answer === null) {
+    expect("the provider delivery returns JSON", false, delivered.body.slice(0, 160));
+    return;
+  }
+  expect("the provider delivery is a first delivery", answer.duplicate === false, `duplicate ${answer.duplicate}`);
+  expect(
+    "the provider delivery lands on the business it names",
+    answer.businessId === CLOUDPULSE,
+    `businessId ${answer.businessId}`,
+  );
+
+  const prisma = await database();
+  const stored = await prisma.ticket.count({ where: { businessId: CLOUDPULSE, externalMessageId } });
+  expect("the provider delivery is persisted", stored === 1, `rows ${stored}`);
+
+  const anonymous = await post("/api/channels/webhook/gmail", payload);
+  expect("a delivery with no session and no token answers 401", anonymous.status === 401, `status ${anonymous.status}`);
+
+  const wrongToken = await post("/api/channels/webhook/gmail", payload, undefined, {
+    "x-channel-token": "not-the-secret",
+  });
+  expect("a delivery with a wrong token answers 401", wrongToken.status === 401, `status ${wrongToken.status}`);
+
+  const unknownId = `${RUN}-token-unknown`;
+  const unknown = await post(
+    "/api/channels/webhook/gmail",
+    { ...payload, businessId: "biz_does_not_exist", externalMessageId: unknownId },
+    undefined,
+    { "x-channel-token": WEBHOOK_SECRET },
+  );
+  expect("a provider delivery to an unknown business answers 404", unknown.status === 404, `status ${unknown.status}`);
+  const phantom = await prisma.ticket.count({ where: { externalMessageId: unknownId } });
+  expect("an unknown business creates no ticket", phantom === 0, `rows ${phantom}`);
+}
+
 async function draftOnlyR5() {
   const created = await post(
     "/api/channels/webhook/instagram",
@@ -576,6 +642,7 @@ async function main() {
     await group("surface", surface);
     await group("idempotency (AT-10)", idempotency);
     await group("cross-tenant idempotency (AT-05)", crossTenantIdempotency);
+    await group("provider token", providerToken);
     await group("R5 draft-only", draftOnlyR5);
     await group("escalation + resolve (R1)", escalation);
     await group("insights", insights);
