@@ -128,3 +128,17 @@ POST /api/voice/start-session          (Phase 4)
 - `POST /api/voice/start-session` response already reserves `contextInjectionMode: "PER_CALL_VARIABLES"` (PRD §5.3), matching mechanism 3.1.
 - `VoiceTestSession` stores `demoPin`, `judgePhone`, `businessId`, `expiresAt`, and an indexed `[judgePhone, status]` pair — everything mechanisms 3.1–3.4 need.
 - No schema changes required for Phase 4.
+
+## 9. Phase 4 implementation notes (31 October 2026)
+
+The backend now implements the architecture in §3–§4 (`src/lib/sarvam.ts` + the three
+`/api/voice/*` routes). Two items from §6 remain open until credentials exist:
+
+- **Outbound endpoint:** `startOutboundCall` defaults to `POST https://api.sarvam.ai/v1/voice-agents/calls` with the `api-subscription-key` header and a body of `{ agent_id, to, from?, variables }`. Both the base URL and path are overridable via `SARVAM_API_BASE_URL` / `SARVAM_OUTBOUND_PATH`, so the exact endpoint can be corrected without a code change once step 1 of §6 is run.
+- **Tool/webhook envelopes:** `/api/voice/sarvam-tool-search` requires `x-sarvam-tool-secret` and accepts `{ sessionId?, demoPin?, callerPhone?, query }`; `/api/voice/sarvam-webhook` requires `x-sarvam-webhook-secret` and accepts `{ sessionId, status?, sarvamInteractionId?, transcript?, durationSeconds?, callerRequestedHuman?, resolved? }`. Sarvam's dashboard tool/webhook configuration must map its fields onto these names (steps 4 and 6 of §6).
+
+Everything server-side is exercised without credentials: session resolution, grounding,
+escalation tickets and secret checks are covered by `tests/sarvam.test.ts`, and one can call the
+tool endpoint with a real session row to see the same `groundedFacts` the agent would speak. A
+live call is still required to confirm the agent echoes the per-call variables and speaks the
+tool result verbatim.

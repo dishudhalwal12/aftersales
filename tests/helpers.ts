@@ -12,6 +12,9 @@ export async function resetBusinessData(businessIds: string[]): Promise<void> {
     where: { ticket: { businessId: { in: businessIds } } },
   });
   await prisma.ticket.deleteMany({ where: { businessId: { in: businessIds } } });
+  await prisma.voiceTestSession.deleteMany({
+    where: { businessId: { in: businessIds } },
+  });
   await prisma.knowledgeChunk.deleteMany({
     where: { businessId: { in: businessIds } },
   });

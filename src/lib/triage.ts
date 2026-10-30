@@ -4,6 +4,7 @@
 
 import type { Business } from "@prisma/client";
 
+import { ApiError } from "./api";
 import { prisma } from "./db";
 import { generateTriageResponse, type LLMError } from "./llm-orchestrator";
 import { searchMarkdownRag } from "./rag";
@@ -55,6 +56,18 @@ function excerpt(content: string): string {
   return compact.length > EXCERPT_LENGTH
     ? `${compact.slice(0, EXCERPT_LENGTH - 1)}…`
     : compact;
+}
+
+function parseCitedChunkIds(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 async function channelAllowsAutoSend(business: Business, channel: TriageChannel): Promise<boolean> {
@@ -226,5 +239,46 @@ export async function triageInboundMessage(
     shouldAutoSend: routing.shouldAutoSend,
     answer,
     sources,
+  };
+}
+
+// Rebuilds the API result for a ticket that already exists. Used when a
+// duplicate webhook arrives: nothing is re-run, the original decision is
+// replayed back to the caller.
+export async function getTriageResultForTicket(ticketId: string): Promise<TriageResult> {
+  const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+  if (!ticket) {
+    throw new ApiError(404, "NOT_FOUND", "Ticket not found.");
+  }
+
+  const citedChunkIds = parseCitedChunkIds(ticket.citedChunkIds);
+  const chunks = citedChunkIds.length
+    ? await prisma.knowledgeChunk.findMany({
+        where: { businessId: ticket.businessId, id: { in: citedChunkIds } },
+        select: { id: true, section: true, content: true },
+      })
+    : [];
+  const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+
+  return {
+    ticketId: ticket.id,
+    businessId: ticket.businessId,
+    specialist: ticket.specialistAssigned,
+    intent: ticket.intent,
+    sentiment: ticket.sentiment,
+    urgencyScore: ticket.urgencyScore,
+    confidenceScore: ticket.confidenceScore,
+    actionStatus: ticket.actionStatus,
+    routingRuleHit: ticket.routingRuleHit,
+    shouldAutoSend: ticket.actionStatus === "answered",
+    answer: ticket.aiDraftOrReply,
+    sources: citedChunkIds
+      .map((chunkId) => {
+        const chunk = chunkById.get(chunkId);
+        return chunk
+          ? { chunkId, section: chunk.section, excerpt: excerpt(chunk.content) }
+          : null;
+      })
+      .filter((source): source is TriageSource => source !== null),
   };
 }

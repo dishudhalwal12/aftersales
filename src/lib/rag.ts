@@ -228,11 +228,30 @@ function chunkBody(body: string): string[] {
   return chunks.length > 0 ? chunks : [body];
 }
 
-function tokenize(text: string): string[] {
+// Light suffix folding so "price", "prices", and "pricing" converge, and
+// "cost"/"costs" or "hour"/"hours" match. Applied to queries and documents
+// together, so ranking stays symmetric.
+function stemToken(token: string): string {
+  if (token.length > 4 && token.endsWith("ing")) return token.slice(0, -3);
+  if (token.length > 4 && token.endsWith("ies")) return `${token.slice(0, -3)}y`;
+  if (token.length > 3 && token.endsWith("es")) return token.slice(0, -2);
+  if (token.length > 3 && token.endsWith("s")) return token.slice(0, -1);
+  if (token.length > 3 && token.endsWith("e")) return token.slice(0, -1);
+  return token;
+}
+
+// Fold the few interchangeable commercial terms that show up in real
+// questions. Applied after stemming, to queries and documents alike.
+const TERM_SYNONYMS: Record<string, string> = { pric: "price", cost: "price" };
+
+export function tokenize(text: string): string[] {
   const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  return tokens.filter(
-    (token) => (token.length >= 3 || /^\d+$/.test(token)) && !STOPWORDS.has(token)
-  );
+  return tokens
+    .filter((token) => (token.length >= 3 || /^\d+$/.test(token)) && !STOPWORDS.has(token))
+    .map((token) => {
+      const stemmed = stemToken(token);
+      return TERM_SYNONYMS[stemmed] ?? stemmed;
+    });
 }
 
 export function extractKeywords(content: string, limit = 24): string {
