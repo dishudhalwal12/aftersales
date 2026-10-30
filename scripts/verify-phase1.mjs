@@ -35,6 +35,7 @@ const results = [];
 /** Rows this run created; removed in `finally` so the seed state survives a gate run. */
 let createdBusinessId = null;
 let createdUserId = null;
+let demoHashBackup = null;
 let db = null;
 
 async function database() {
@@ -51,21 +52,74 @@ async function cookieFor(userId) {
   return `${SESSION_COOKIE}=${signSessionToken(userId)}`;
 }
 
+function isMissingRow(error) {
+  return (
+    typeof error === "object" && error !== null && "code" in error && error.code === "P2025"
+  );
+}
+
+/**
+ * Remove every row this run created. Returns the problems instead of swallowing
+ * them: a gate that leaves a business behind must not report PASS.
+ */
 async function cleanup() {
+  const problems = [];
+  let prisma = null;
   try {
-    const prisma = await database();
-    if (createdBusinessId !== null) {
-      await prisma.business.delete({ where: { id: createdBusinessId } }).catch(() => {});
-      createdBusinessId = null;
-    }
-    if (createdUserId !== null) {
-      await prisma.user.delete({ where: { id: createdUserId } }).catch(() => {});
-      createdUserId = null;
-    }
-    await prisma.$disconnect();
-  } catch {
-    // the gate's verdict does not depend on cleanup succeeding
+    prisma = await database();
+  } catch (error) {
+    return [`could not reach the database: ${error instanceof Error ? error.message : String(error)}`];
   }
+
+  if (demoHashBackup !== null) {
+    // Restore the demo password even if a check threw between mutation and its `finally`.
+    try {
+      const demo = await prisma.user.findUnique({ where: { email: "judge@demo.aftersales.ai" } });
+      if (demo !== null) {
+        await prisma.user.update({ where: { id: demo.id }, data: { passwordHash: demoHashBackup } });
+      }
+      demoHashBackup = null;
+    } catch (error) {
+      problems.push(`could not restore the demo password: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  for (const [label, id, remove] of [
+    ["business", createdBusinessId, () => prisma.business.delete({ where: { id: createdBusinessId } })],
+    ["user", createdUserId, () => prisma.user.delete({ where: { id: createdUserId } })],
+  ]) {
+    if (id === null) continue;
+    try {
+      await remove();
+    } catch (error) {
+      if (!isMissingRow(error)) {
+        problems.push(`could not delete ${label} ${id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+  createdBusinessId = null;
+  createdUserId = null;
+
+  await prisma.$disconnect();
+  return problems;
+}
+
+/** Ctrl-C must not leave a detached `next dev` running or a half-written row behind. */
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  process.stdout.write(`\ninterrupted (${signal}) — stopping the server and cleaning up\n`);
+  stopServer();
+  const problems = await cleanup();
+  logStream.end();
+  for (const problem of problems) process.stderr.write(`cleanup: ${problem}\n`);
+  process.exit(130);
+}
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    void shutdown(signal);
+  });
 }
 
 function expect(label, ok, detail = "") {
@@ -144,8 +198,8 @@ async function group(name, run) {
   }
 }
 
-async function post(path, body, cookie) {
-  const headers = {};
+async function post(path, body, cookie, extraHeaders = {}) {
+  const headers = { ...extraHeaders };
   if (body !== undefined) headers["content-type"] = "application/json";
   if (cookie !== undefined) headers.cookie = cookie;
   const response = await fetch(`${BASE}${path}`, {
@@ -211,7 +265,61 @@ async function auth() {
   const authPage = await get("/auth");
   expectIncludes(authPage.body, "1-click judge demo login", "the auth page shows the judge demo panel");
 
+  await accountSquatting();
+  await crossSiteOrigin();
+
   return cookie;
+}
+
+/**
+ * A stranger can claim `judge@demo...` through normal sign-up before the seed runs. The demo
+ * route must then refuse (404), not hand them a passwordless door into the account a judge
+ * is about to type into.
+ */
+async function accountSquatting() {
+  const prisma = await database();
+  const { hashPassword } = await authHelpers();
+  const demo = await prisma.user.findUnique({ where: { email: "judge@demo.aftersales.ai" } });
+  if (demo === null || typeof demo.passwordHash !== "string") {
+    expect("the seeded demo account exists", false, "judge@demo.aftersales.ai not found");
+    return;
+  }
+
+  demoHashBackup = demo.passwordHash;
+  try {
+    await prisma.user.update({
+      where: { id: demo.id },
+      data: { passwordHash: hashPassword("squatter-took-this-account") },
+    });
+    const refused = await post("/api/auth/judge-demo");
+    expect(
+      "a demo account whose password no longer matches is refused (404)",
+      refused.status === 404,
+      `status ${refused.status} — anyone could squat the demo email`,
+    );
+  } finally {
+    await prisma.user.update({ where: { id: demo.id }, data: { passwordHash: demoHashBackup } });
+    demoHashBackup = null;
+  }
+
+  const restored = await post("/api/auth/judge-demo");
+  expect("the restored demo account signs in again (303)", restored.status === 303, `status ${restored.status}`);
+}
+
+/** Route handlers get no built-in origin check (server actions do) — the cookie must not be set cross-site. */
+async function crossSiteOrigin() {
+  const crossSite = await post("/api/auth/judge-demo", undefined, undefined, {
+    origin: "https://evil.example",
+  });
+  expect("a cross-site POST is rejected (403)", crossSite.status === 403, `status ${crossSite.status}`);
+  expect(
+    "a cross-site POST sets no session cookie",
+    sessionCookie(crossSite.headers) === null,
+    "the response carried as_session",
+  );
+
+  const sameSite = await post("/api/auth/judge-demo", undefined, undefined, { origin: BASE });
+  expect("a same-origin POST still signs in (303)", sameSite.status === 303, `status ${sameSite.status}`);
 }
 
 async function healthAndDocs() {
@@ -359,14 +467,25 @@ async function main() {
   try {
     await waitForServer();
     await group("landing", landing);
-    const judgeCookie = await auth();
+
+    let judgeCookie = null;
+    await group("auth", async () => {
+      judgeCookie = await auth();
+    });
+    if (judgeCookie === null) {
+      throw new Error("the judge demo could not sign in — every later group depends on it");
+    }
+
     await group("health + docs", healthAndDocs);
     await group("contracts (AT-02)", () => contracts(judgeCookie));
     await group("tenancy (AT-05)", () => tenancy(judgeCookie));
     await group("redirect + surface (AT-01)", () => redirect(judgeCookie));
   } finally {
     stopServer();
-    await cleanup();
+    await group("cleanup", async () => {
+      const problems = await cleanup();
+      expect("every row this run created was removed", problems.length === 0, problems.join("; "));
+    });
     logStream.end();
   }
 
