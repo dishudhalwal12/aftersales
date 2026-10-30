@@ -1,6 +1,6 @@
-// Business Brain compiler + chunker.
-// Phase 1 only builds the versioned markdown and its chunks; retrieval
-// (search_markdown_rag) is added in Phase 2.
+// Business Brain compiler, chunker, and business-scoped retrieval.
+
+import { prisma } from "./db";
 
 export const CHUNK_MIN_WORDS = 150;
 export const CHUNK_MAX_WORDS = 300;
@@ -228,13 +228,17 @@ function chunkBody(body: string): string[] {
   return chunks.length > 0 ? chunks : [body];
 }
 
+function tokenize(text: string): string[] {
+  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return tokens.filter(
+    (token) => (token.length >= 3 || /^\d+$/.test(token)) && !STOPWORDS.has(token)
+  );
+}
+
 export function extractKeywords(content: string, limit = 24): string {
-  const tokens = content.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   const counts = new Map<string, number>();
 
-  for (const token of tokens) {
-    if (token.length < 3 && !/^\d+$/.test(token)) continue;
-    if (STOPWORDS.has(token)) continue;
+  for (const token of tokenize(content)) {
     counts.set(token, (counts.get(token) ?? 0) + 1);
   }
 
@@ -269,4 +273,107 @@ export function splitIntoChunks(markdown: string): CompiledChunk[] {
 export function buildBusinessBrain(facts: BusinessFacts): CompiledBrain {
   const brainMd = compileBusinessBrain(facts);
   return { brainMd, chunks: splitIntoChunks(brainMd) };
+}
+
+export type RankableChunk = {
+  id: string;
+  section: string;
+  content: string;
+  keywords: string;
+};
+
+export type RagSearchResult = RankableChunk & { score: number };
+
+type ScoredDoc = {
+  chunk: RankableChunk;
+  termFrequency: Map<string, number>;
+  length: number;
+};
+
+// BM25 over chunk content + section + stored keywords, with a section/keyword
+// boost. Kept pure so retrieval ranking can be tested without a database.
+export function rankChunks(
+  chunks: RankableChunk[],
+  query: string,
+  topK = 4
+): RagSearchResult[] {
+  if (chunks.length === 0) return [];
+
+  const queryTerms = [...new Set(tokenize(query))];
+  if (queryTerms.length === 0) return [];
+
+  const docs: ScoredDoc[] = chunks.map((chunk) => {
+    const tokens = tokenize(
+      `${chunk.section} ${chunk.section} ${chunk.keywords.replace(/,/g, " ")} ${chunk.content}`
+    );
+    const termFrequency = new Map<string, number>();
+    for (const token of tokens) {
+      termFrequency.set(token, (termFrequency.get(token) ?? 0) + 1);
+    }
+    return { chunk, termFrequency, length: tokens.length };
+  });
+
+  const averageLength =
+    docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1;
+
+  const documentFrequency = new Map<string, number>();
+  for (const term of queryTerms) {
+    documentFrequency.set(term, docs.filter((doc) => doc.termFrequency.has(term)).length);
+  }
+
+  const k1 = 1.5;
+  const b = 0.75;
+  const phrase = query.toLowerCase().replace(/\s+/g, " ").trim();
+
+  const scored = docs
+    .map((doc) => {
+      let score = 0;
+
+      for (const term of queryTerms) {
+        const frequency = doc.termFrequency.get(term) ?? 0;
+        if (frequency === 0) continue;
+        const docFreq = documentFrequency.get(term) ?? 0;
+        const idf = Math.log(1 + (docs.length - docFreq + 0.5) / (docFreq + 0.5));
+        score +=
+          idf *
+          ((frequency * (k1 + 1)) /
+            (frequency + k1 * (1 - b + b * (doc.length / averageLength))));
+      }
+
+      if (score === 0) return { chunk: doc.chunk, score };
+
+      if (phrase.length > 6 && doc.chunk.content.toLowerCase().includes(phrase)) {
+        score *= 1.35;
+      }
+
+      const storedKeywords = new Set(doc.chunk.keywords.split(","));
+      const keywordHits = queryTerms.filter((term) => storedKeywords.has(term)).length;
+      score += keywordHits * 0.35;
+
+      return { chunk: doc.chunk, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b2) => b2.score - a.score || a.chunk.id.localeCompare(b2.chunk.id))
+    .slice(0, topK);
+
+  return scored.map(({ chunk, score }) => ({
+    ...chunk,
+    score: Math.round(score * 1000) / 1000,
+  }));
+}
+
+// The ONLY retrieval entry point. The tenant filter lives in the SQL WHERE
+// clause, so a query can never score another business's chunks.
+export async function searchMarkdownRag(
+  businessId: string,
+  query: string,
+  topK = 4
+): Promise<RagSearchResult[]> {
+  const chunks = await prisma.knowledgeChunk.findMany({
+    where: { businessId },
+    select: { id: true, section: true, content: true, keywords: true },
+    orderBy: { chunkIndex: "asc" },
+  });
+
+  return rankChunks(chunks, query, topK);
 }
