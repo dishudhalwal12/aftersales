@@ -168,9 +168,21 @@ export interface VoiceToolSearchResponse {
 export interface VoiceWebhookResponse {
   sessionId: string;
   sessionStatus: string;
-  escalationOutcome: string;
+  escalationOutcome: string | null;
   ticketId: string;
   ticketState: string;
   actionStatus: string;
   routingRuleHit: string;
+  duplicate: boolean;
+}
+
+/** A persisted voice session, as the dashboard renders it after a reload. */
+export interface VoiceSessionView {
+  sessionId: string;
+  status: string;
+  demoPin: string;
+  transcript: string | null;
+  durationSeconds: number | null;
+  escalationOutcome: string | null;
+  createdAt: string;
 }

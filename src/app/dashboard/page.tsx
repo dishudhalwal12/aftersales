@@ -9,7 +9,7 @@ import { LiveQueuePanel } from "../../components/dashboard/LiveQueuePanel.tsx";
 import { VoiceTestPanel } from "../../components/dashboard/VoiceTestPanel.tsx";
 import { BrainInsightsPanel } from "../../components/dashboard/BrainInsightsPanel.tsx";
 import { ChannelsPanel } from "../../components/dashboard/ChannelsPanel.tsx";
-import type { BusinessSummary } from "../../shared/api.ts";
+import type { BusinessSummary, VoiceSessionView } from "../../shared/api.ts";
 import { resetDemoAction } from "./actions.ts";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +74,40 @@ export default async function DashboardPage({
 
   const voice = sarvamStatus();
 
+  // The last call this business has, read from the database so the panel still shows the
+  // transcript, duration and outcome after a reload (Phase 4 gate).
+  const latestCall = await prisma.voiceTestSession.findFirst({
+    where: {
+      businessId: activeBusiness.businessId,
+      // Only a call that actually ended is a "last call". A session that is still `initiated`
+      // has no transcript, no outcome and no queue ticket — showing it here would claim a
+      // completed call that never happened.
+      status: { in: ["completed", "failed"] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      demoPin: true,
+      transcript: true,
+      durationSeconds: true,
+      escalationOutcome: true,
+      createdAt: true,
+    },
+  });
+  const lastSession: VoiceSessionView | null =
+    latestCall === null
+      ? null
+      : {
+          sessionId: latestCall.id,
+          status: latestCall.status,
+          demoPin: latestCall.demoPin,
+          transcript: latestCall.transcript,
+          durationSeconds: latestCall.durationSeconds,
+          escalationOutcome: latestCall.escalationOutcome,
+          createdAt: latestCall.createdAt.toISOString(),
+        };
+
   return (
     <DashboardShell
       businesses={businesses}
@@ -92,6 +126,7 @@ export default async function DashboardPage({
           businessId={activeBusiness.businessId}
           businessName={activeBusiness.name}
           sarvamConfigured={voice.configured}
+          lastSession={lastSession}
         />
       )}
       {tab === "brain" && <BrainInsightsPanel businessId={activeBusiness.businessId} />}

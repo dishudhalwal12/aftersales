@@ -21,7 +21,12 @@ export async function resetDemoAction(): Promise<void> {
 
   if (ids.length > 0) {
     await prisma.ticket.deleteMany({
-      where: { businessId: { in: ids }, externalMessageId: null },
+      where: {
+        businessId: { in: ids },
+        // Demo rows: what the simulator and the voice panel created. Seeded tickets keep
+        // their external id, so the insights history survives a reset.
+        OR: [{ externalMessageId: null }, { externalMessageId: { startsWith: "voice:" } }],
+      },
     });
     await prisma.voiceTestSession.deleteMany({ where: { businessId: { in: ids } } });
   }
