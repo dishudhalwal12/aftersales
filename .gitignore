@@ -1,0 +1,17 @@
+# Pi package cache (re-cloned from .pi/settings.json)
+.pi/git/
+
+# deps
+node_modules/
+
+# build + coverage output
+dist/
+coverage/
+
+# secrets - .env.example is the only env file that may be committed
+.env
+.env.*
+!.env.example
+
+# OS noise
+.DS_Store

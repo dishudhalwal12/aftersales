@@ -1,0 +1,19 @@
+{
+  "name": "team-41-support-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Team 41 - SPHINX '26 PS 2.5 omnichannel support agent (domain core)",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --test 'tests/**/*.test.ts'",
+    "test:coverage": "node --test --experimental-test-coverage 'tests/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
