@@ -15,3 +15,11 @@ coverage/
 
 # OS noise
 .DS_Store
+
+# sqlite database + next build output
+prisma/*.db
+prisma/*.db-journal
+next-env.d.ts
+
+# downloaded reference mirror, not part of the app
+landingpage.it/

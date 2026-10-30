@@ -1,19 +1,38 @@
 {
-  "name": "team-41-support-agent",
-  "version": "0.1.0",
+  "name": "aftersales-ai",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Team 41 - SPHINX '26 PS 2.5 omnichannel support agent (domain core)",
+  "description": "Team 41 - SPHINX '26 PS 2.5 omnichannel AI support & triage",
   "engines": {
     "node": ">=22.6"
   },
   "scripts": {
-    "test": "node --test 'tests/**/*.test.ts'",
-    "test:coverage": "node --test --experimental-test-coverage 'tests/**/*.test.ts'",
-    "typecheck": "tsc --noEmit"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --env-file-if-exists=.env --test 'tests/**/*.test.ts'",
+    "test:coverage": "node --env-file-if-exists=.env --test --experimental-test-coverage 'tests/**/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "db:setup": "prisma db push && prisma db seed",
+    "db:reset": "prisma db push --force-reset && prisma db seed"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.ts"
   },
   "dependencies": {
+    "@prisma/client": "6.19.3",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "prisma": "6.19.3",
     "typescript": "^7.0.2"
   }
 }
