@@ -97,7 +97,7 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | Classifier output | untrusted | strict schema validation; invalid ⇒ `null` ⇒ R7 |
 | `cited_chunk_ids` from the model | untrusted | filtered against the business's real chunk ids ⇒ R2 if empty |
 | Webhook `externalMessageId` | the idempotency key, scoped to the tenant | replay returns this tenant's original ticket with `duplicate: true`; another tenant's id never resolves here |
-| Webhook `x-channel-token` | a provider credential, not a tenant session | valid ⇒ delivery may write to the business it names; unknown `businessId` ⇒ `404`; absent ⇒ owner cookie required |
+| Webhook `x-channel-token` | a **platform** credential, not a tenant session | valid ⇒ delivery may write to any business it names (treat the secret like the DB password); unknown `businessId` ⇒ `404`; absent ⇒ owner cookie required. Per-business tokens are deliberately not built |
 | Voice `demoPin` / `sessionId` | the capability that scopes a call | expired session ⇒ `410`, wrong tenant ⇒ `403` |
 | The end customer | always unauthenticated | zero customer credentials exist to leak |
 

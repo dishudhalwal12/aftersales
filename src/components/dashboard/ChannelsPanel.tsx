@@ -248,7 +248,7 @@ export function ChannelsPanel({
             <span>
               Two deliveries, {first.ticketId === second.ticketId ? "one ticket" : "two tickets"} —{" "}
               {first.ticketId === second.ticketId
-                ? "the unique externalMessageId absorbed the replay."
+                ? "the (businessId, externalMessageId) key absorbed the replay."
                 : "the ids differed, so both were processed."}
             </span>
           </p>

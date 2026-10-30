@@ -56,6 +56,23 @@ npm run verify:phase3 # boots the app and asserts the Phase 3 channel gate over 
 npm run db:reset     # wipe and re-seed
 ```
 
+### Upgrading an existing database
+
+The Phase 3 idempotency key is `(businessId, externalMessageId)`, so an existing database drops a
+unique index and adds a composite one. That is index-only DDL — no row is deleted — but `prisma db
+push` warns and refuses it by default. Check that no duplicate pair exists, then accept the warning
+explicitly:
+
+```sql
+SELECT "businessId", "externalMessageId", COUNT(*) FROM "Ticket"
+WHERE "externalMessageId" IS NOT NULL
+GROUP BY 1, 2 HAVING COUNT(*) > 1;          -- must return 0 rows
+```
+
+```bash
+npx prisma db push --accept-data-loss   # drops the old unique index, adds the composite one
+```
+
 **Demo login:** the auth screen has a **1-Click Judge Demo Login** button. It signs you in as
 `judge@demo.aftersales.ai`, which owns both seeded businesses (password `judge-demo-41` if you prefer
 the form).
@@ -168,6 +185,10 @@ Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an emp
 | `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT` | the voice panel is an explicit dry run |
 | `SARVAM_WEBHOOK_TOKEN` | the voice webhook only accepts the signed-in owner's session |
 | `CHANNEL_WEBHOOK_SECRET` | only the signed-in owner (the dashboard simulator) may deliver to a channel webhook |
+
+`CHANNEL_WEBHOOK_SECRET` is a **platform** credential, not a tenant credential: a provider delivery
+names its business, so one valid token can write to every tenant. Treat it like the database password
+and hand it only to the adapter you operate. Per-business tokens are not built.
 
 No secret is read in a client component. `.env` is gitignored; `.env.example` holds empty values only.
 
