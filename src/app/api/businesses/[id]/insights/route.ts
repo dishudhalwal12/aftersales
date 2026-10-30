@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/db.ts";
-import { buildInsights, type InsightTicket } from "../../../../../lib/insights.ts";
-import { errorResponse, loadOwnedBusiness, requireUser } from "../../../../../lib/tenant.ts";
+import { prisma } from "../../../../../server/db.ts";
+import { buildInsights, type InsightTicket } from "../../../../../server/business/insights.ts";
+import { errorResponse, loadOwnedBusiness, requireUser } from "../../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

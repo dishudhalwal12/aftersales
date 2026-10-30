@@ -2,12 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, emitDataChanged, timeAgo, useDataChanged } from "./client.ts";
-import type {
-  TicketDetailResponse,
-  TicketEvent,
-  TicketListResponse,
-  TicketSummary,
-} from "../../lib/api-types.ts";
+import type { TicketDetailResponse, TicketListResponse, TicketSummary } from "../../shared/api.ts";
 import {
   ActionPill,
   ChannelBadge,
@@ -222,11 +217,7 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
               </div>
 
               <p className="eyebrow" style={{ marginTop: 16, marginBottom: 6 }}>
-                {selected.actionStatus === "answered"
-                  ? "Reply sent"
-                  : selected.actionStatus === "draft"
-                    ? "Agent draft — held, not sent"
-                    : "Agent draft — withheld from the customer"}
+                {selected.actionStatus === "answered" ? "Reply sent" : "Agent draft (not sent)"}
               </p>
               <p style={{ fontSize: 13.5 }}>{selected.aiDraftOrReply}</p>
 
@@ -234,9 +225,7 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
                 Cited chunks ({selected.citedChunkIds.length})
               </p>
               {selected.citedChunkIds.length === 0 ? (
-                <p className="tiny muted">
-                  Nothing cited — this ticket cannot be auto-sent. A human reads it or it stays held.
-                </p>
+                <p className="tiny muted">Nothing cited — this ticket may not be auto-sent (R2).</p>
               ) : (
                 <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                   {selected.citedChunkIds.map((id) => (
@@ -296,17 +285,9 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
                           <span className="tl-type">{event.eventType}</span>
                           <span className="tiny muted">{timeAgo(event.createdAt)}</span>
                         </div>
-                        <p className="tiny" style={{ marginTop: 2 }}>
-                          {eventSummary(event)}
+                        <p className="tiny muted mono" style={{ wordBreak: "break-word" }}>
+                          {JSON.stringify(event.payload)}
                         </p>
-                        <details style={{ marginTop: 2 }}>
-                          <summary className="tiny muted" style={{ cursor: "pointer" }}>
-                            payload
-                          </summary>
-                          <p className="tiny muted mono" style={{ wordBreak: "break-word", marginTop: 4 }}>
-                            {JSON.stringify(event.payload)}
-                          </p>
-                        </details>
                       </div>
                     </div>
                   ))}
@@ -320,48 +301,4 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
       </div>
     </div>
   );
-}
-
-function eventSummary(event: TicketEvent): string {
-  const payload = (typeof event.payload === "object" && event.payload !== null
-    ? event.payload
-    : {}) as Record<string, unknown>;
-  const list = (value: unknown): string =>
-    Array.isArray(value) && value.length > 0 ? value.join(", ") : "none";
-
-  switch (event.eventType) {
-    case "INBOUND_RECEIVED":
-      return `${String(payload["channel"] ?? "channel")} · ${
-        payload["externalMessageId"] === null || payload["externalMessageId"] === undefined
-          ? "no external id"
-          : String(payload["externalMessageId"])
-      }`;
-    case "RAG_RETRIEVED": {
-      const retrieved = Array.isArray(payload["retrieved"]) ? payload["retrieved"] : [];
-      const provider = String(payload["provider"] ?? "unknown");
-      return retrieved.length === 0
-        ? `no chunk retrieved · provider ${provider}`
-        : `${retrieved.length} chunk(s) retrieved · provider ${provider}`;
-    }
-    case "ROUTING_DECIDED":
-      return `rule ${String(payload["rule"] ?? "?")} · confidence ${String(payload["confidence"] ?? "?")} · urgency ${String(
-        payload["urgency"] ?? "?",
-      )} → ${String(payload["actionStatus"] ?? "?")}`;
-    case "AUTO_SENT":
-      return `sent to the customer · cited ${list(payload["citedChunkIds"])}`;
-    case "DRAFT_SAVED":
-      return `draft held for a human · cited ${list(payload["citedChunkIds"])}`;
-    case "ESCALATED":
-      return `escalated · cited ${list(payload["citedChunkIds"])}`;
-    case "CLASSIFIER_FAILED":
-      return "classifier failed — nothing was sent";
-    case "HUMAN_APPROVED_SEND":
-      return "owner approved the draft and sent it";
-    case "HUMAN_RESOLVED":
-      return "owner resolved the escalation";
-    case "TICKET_CLOSED":
-      return "ticket closed by the owner";
-    default:
-      return JSON.stringify(payload).slice(0, 120);
-  }
 }

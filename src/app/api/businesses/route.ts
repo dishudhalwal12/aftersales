@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/db.ts";
-import { createBusinessForOwner } from "../../../lib/business-admin.ts";
+import { prisma } from "../../../server/db.ts";
+import { createBusinessForOwner } from "../../../server/business/admin.ts";
 import {
   errorResponse,
   readJson,
   requireString,
   requireUser,
-} from "../../../lib/tenant.ts";
-import { HttpError } from "../../../lib/tenant.ts";
+} from "../../../server/auth/tenant.ts";
+import { HttpError } from "../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

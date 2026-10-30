@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/db.ts";
-import { respondToContact } from "../../../../../lib/business-service.ts";
+import { prisma } from "../../../../../server/db.ts";
+import { respondToContact } from "../../../../../server/business/service.ts";
 import {
   HttpError,
   errorResponse,
@@ -8,8 +8,8 @@ import {
   readJson,
   requireString,
   requireUser,
-} from "../../../../../lib/tenant.ts";
-import type { TicketChannel } from "../../../../../lib/types.ts";
+} from "../../../../../server/auth/tenant.ts";
+import type { TicketChannel } from "../../../../../shared/domain.ts";
 
 export const dynamic = "force-dynamic";
 

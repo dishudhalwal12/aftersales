@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/db.ts";
-import { buildCallVariables, sarvamStatus } from "../../../../lib/sarvam.ts";
-import { HttpError, errorResponse, readJson } from "../../../../lib/tenant.ts";
+import { prisma } from "../../../../server/db.ts";
+import { buildCallVariables, sarvamStatus } from "../../../../server/voice/sarvam.ts";
+import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

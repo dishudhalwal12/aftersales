@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/db.ts";
-import { placeOutboundCall, buildCallVariables, generateDemoPin, sarvamStatus } from "../../../../lib/sarvam.ts";
+import { prisma } from "../../../../server/db.ts";
+import { placeOutboundCall, buildCallVariables, generateDemoPin, sarvamStatus } from "../../../../server/voice/sarvam.ts";
 import {
   HttpError,
   errorResponse,
@@ -8,7 +8,7 @@ import {
   readJson,
   requireString,
   requireUser,
-} from "../../../../lib/tenant.ts";
+} from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

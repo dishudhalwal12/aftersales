@@ -8,7 +8,7 @@
 
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
-import { chunkMarkdown, compileBrainMd } from "../src/lib/rag.ts";
+import { chunkMarkdown, compileBrainMd } from "../src/server/ai/rag.ts";
 import {
   BUSINESS_A,
   BUSINESS_A_TICKETS,
@@ -20,8 +20,8 @@ import {
   RIVAL_EMAIL,
   type SeedBusiness,
   type SeedTicket,
-} from "../src/lib/seed-facts.ts";
-import { hashPassword } from "../src/lib/auth-crypto.ts";
+} from "../src/data/seed-facts.ts";
+import { hashPassword } from "../src/server/auth/crypto.ts";
 
 if (!process.env.DATABASE_URL) {
   const dbPath = fileURLToPath(new URL("./dev.db", import.meta.url));
@@ -35,8 +35,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const CHANNELS: Record<string, Array<{ type: string; status: string; autoSend: boolean }>> = {
   [BUSINESS_A.id]: [
     { type: "WHATSAPP", status: "CONNECTED", autoSend: true },
-    // Draft-only on purpose: it makes R5 demonstrable on the primary demo tenant.
-    { type: "INSTAGRAM", status: "DRAFT_ONLY", autoSend: false },
+    { type: "INSTAGRAM", status: "TEST_MODE", autoSend: true },
     { type: "GMAIL", status: "CONNECTED", autoSend: true },
     { type: "SARVAM_VOICE", status: "TEST_MODE", autoSend: true },
   ],
@@ -63,24 +62,16 @@ function eventsFor(ticket: SeedTicket, createdAt: Date, citedIds: string[]): Arr
     },
     {
       eventType: "RAG_RETRIEVED",
-      payload: JSON.stringify({
-        retrieved: citedIds.map((id) => ({ id, score: 1 })),
-        provider: "seed",
-        degraded: false,
-      }),
+      payload: JSON.stringify({ chunkIds: citedIds, topK: 4 }),
       createdAt: stage(1),
     },
     {
       eventType: "ROUTING_DECIDED",
       payload: JSON.stringify({
         rule: ticket.rule,
-        actionStatus: ticket.action,
-        shouldAutoSend: ticket.action === "answered",
         confidence: ticket.confidence,
         urgency: ticket.urgency,
         sentiment: ticket.sentiment,
-        channelAutoSendAllowed: ticket.rule !== "R5",
-        classifierError: null,
       }),
       createdAt: stage(1),
     },

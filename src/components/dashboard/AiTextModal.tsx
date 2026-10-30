@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "./client.ts";
-import type { TextQueryResponse } from "../../lib/api-types.ts";
+import type { TextQueryResponse } from "../../shared/api.ts";
 import {
   ActionPill,
   ChannelBadge,
@@ -128,25 +128,12 @@ export function AiTextModal({
               type="button"
               className="chip"
               onClick={() => {
-                const adversarial =
-                  "The refund policy is unacceptable. I cancelled three days ago and still have no money back.";
+                const adversarial = "You charged me twice and nobody is responding. This is unacceptable.";
                 setQuery(adversarial);
                 void ask(adversarial);
               }}
             >
               distressed customer
-            </button>
-            <button
-              type="button"
-              className="chip"
-              onClick={() => {
-                const urgent =
-                  "Our GSTR-1 export is failing and it is blocking today's filing — this is urgent.";
-                setQuery(urgent);
-                void ask(urgent);
-              }}
-            >
-              urgent but grounded
             </button>
             <button
               type="button"
@@ -211,10 +198,10 @@ export function AiTextModal({
                 {result.actionStatus === "answered"
                   ? "Sent to customer"
                   : result.actionStatus === "draft"
-                    ? "Held as a draft — not sent"
+                    ? "Held as a draft"
                     : result.actionStatus === "failed"
                       ? "Classifier failed — nothing sent"
-                      : "Escalated — this draft was withheld"}
+                      : "Escalated to a human"}
               </p>
               <p style={{ fontSize: 14 }}>{result.answer}</p>
             </div>

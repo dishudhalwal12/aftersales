@@ -13,23 +13,23 @@ type Tab = "signin" | "signup";
 
 const initial: AuthState = EMPTY_AUTH_STATE;
 
-export function AuthPanel() {
+export function AuthPanel({ notice = null }: { notice?: string | null }) {
   const [tab, setTab] = useState<Tab>("signin");
   const [signInState, signIn] = useActionState(signInAction, initial);
   const [signUpState, signUp] = useActionState(signUpAction, initial);
   const [googleState, google] = useActionState(googleSignInAction, initial);
 
   const pending = tab === "signin" ? signInState : signUpState;
-  const error = pending.error ?? googleState.error;
+  const error = pending.error ?? googleState.error ?? notice;
 
   return (
-    <div className="glass panel fade-in" style={{ width: "100%", maxWidth: 460 }}>
-      <div className="row" role="tablist" aria-label="Authentication" style={{ gap: 6, marginBottom: 18 }}>
+    <div className="auth-card">
+      <div className="auth-tabs" role="tablist" aria-label="Authentication">
         <button
           type="button"
           role="tab"
           aria-selected={tab === "signin"}
-          className={tab === "signin" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+          className="auth-tab"
           onClick={() => setTab("signin")}
         >
           Sign in
@@ -38,37 +38,33 @@ export function AuthPanel() {
           type="button"
           role="tab"
           aria-selected={tab === "signup"}
-          className={tab === "signup" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+          className="auth-tab"
           onClick={() => setTab("signup")}
         >
           Create account
         </button>
       </div>
 
-      <form action={demoLoginAction} style={{ marginBottom: 16 }}>
-        <button type="submit" className="btn btn-primary" style={{ width: "100%" }}>
+      <form action={demoLoginAction} style={{ marginBottom: 2 }}>
+        <button type="submit" className="auth-btn auth-btn-judge">
           <span aria-hidden="true">⚡</span> 1-Click Judge Demo Login
         </button>
       </form>
 
-      <div className="row" style={{ margin: "0 0 16px" }}>
-        <hr className="hairline spread" />
-        <span className="tiny muted">or</span>
-        <hr className="hairline spread" />
-      </div>
+      <div className="auth-divider">or</div>
 
       {error !== null && (
-        <p className="banner banner-danger" role="alert" style={{ marginBottom: 14 }}>
+        <p className="auth-error" role="alert">
           {error}
         </p>
       )}
 
       {tab === "signin" ? (
-        <form action={signIn} className="stack" key="signin">
-          <label className="field">
+        <form action={signIn} className="auth-form" key="signin">
+          <label className="auth-field">
             <span>Email</span>
             <input
-              className="input"
+              className="auth-input"
               name="email"
               type="email"
               autoComplete="email"
@@ -76,10 +72,10 @@ export function AuthPanel() {
               required
             />
           </label>
-          <label className="field">
+          <label className="auth-field">
             <span>Password</span>
             <input
-              className="input"
+              className="auth-input"
               name="password"
               type="password"
               autoComplete="current-password"
@@ -87,20 +83,25 @@ export function AuthPanel() {
               required
             />
           </label>
-          <button className="btn btn-primary" type="submit">
+          <button className="auth-btn auth-btn-primary" type="submit">
             Sign in
           </button>
         </form>
       ) : (
-        <form action={signUp} className="stack" key="signup">
-          <label className="field">
+        <form action={signUp} className="auth-form" key="signup">
+          <label className="auth-field">
             <span>Business owner name</span>
-            <input className="input" name="name" autoComplete="name" placeholder="Divyanshu" />
+            <input
+              className="auth-input"
+              name="name"
+              autoComplete="name"
+              placeholder="Divyanshu"
+            />
           </label>
-          <label className="field">
+          <label className="auth-field">
             <span>Email</span>
             <input
-              className="input"
+              className="auth-input"
               name="email"
               type="email"
               autoComplete="email"
@@ -108,10 +109,10 @@ export function AuthPanel() {
               required
             />
           </label>
-          <label className="field">
+          <label className="auth-field">
             <span>Password</span>
             <input
-              className="input"
+              className="auth-input"
               name="password"
               type="password"
               autoComplete="new-password"
@@ -120,20 +121,16 @@ export function AuthPanel() {
               required
             />
           </label>
-          <button className="btn btn-primary" type="submit">
+          <button className="auth-btn auth-btn-primary" type="submit">
             Create account
           </button>
         </form>
       )}
 
-      <div className="row" style={{ margin: "16px 0" }}>
-        <hr className="hairline spread" />
-        <span className="tiny muted">or</span>
-        <hr className="hairline spread" />
-      </div>
+      <div className="auth-divider">or</div>
 
       <form action={google}>
-        <button className="btn" type="submit" style={{ width: "100%" }}>
+        <button className="auth-btn auth-btn-google" type="submit">
           <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
             <path
               fill="#EA4335"
@@ -155,9 +152,10 @@ export function AuthPanel() {
           Continue with Google
         </button>
       </form>
-      <p className="tiny muted" style={{ marginTop: 10 }}>
-        Google sign-in reports itself unavailable until OAuth keys are set. No secret is ever
-        bundled into the client.
+
+      <p className="auth-note">
+        Google sign-in goes through Supabase; with no keys configured the button says so instead of
+        failing silently. No secret is ever bundled into the client.
       </p>
     </div>
   );

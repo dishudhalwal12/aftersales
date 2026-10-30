@@ -1,15 +1,17 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { prisma } from "../../lib/db.ts";
+import { prisma } from "../../server/db.ts";
 import {
   endSession,
   hashPassword,
   postAuthPath,
   startSession,
   verifyPassword,
-} from "../../lib/auth.ts";
+} from "../../server/auth/session.ts";
 import type { AuthState } from "./state.ts";
+import { authBaseUrl, googleCallbackUrl, readSupabaseConfig } from "../../server/auth/supabase/config.ts";
+import { createSupabaseServerClient } from "../../server/auth/supabase/server.ts";
 
 const DEMO_EMAIL = "judge@demo.aftersales.ai";
 
@@ -91,10 +93,32 @@ export async function demoLoginAction(): Promise<void> {
 }
 
 export async function googleSignInAction(): Promise<AuthState> {
-  return {
-    error:
-      "Google OAuth is not configured on this deployment. Use email sign-in or the judge demo login.",
-  };
+  if (readSupabaseConfig() === null) {
+    return {
+      error:
+        "Google sign-in is not configured: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are missing.",
+    };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      // The browser must reach Google, but the PKCE verifier has to land in a
+      // cookie first — so we take the URL and redirect ourselves.
+      skipBrowserRedirect: true,
+      redirectTo: googleCallbackUrl(authBaseUrl()),
+      queryParams: { prompt: "select_account" },
+    },
+  });
+
+  if (error !== null || data.url === null || data.url.length === 0) {
+    return {
+      error: `Google sign-in could not start: ${error?.message ?? "no authorization URL was returned."}`,
+    };
+  }
+
+  redirect(data.url);
 }
 
 export async function signOutAction(): Promise<void> {

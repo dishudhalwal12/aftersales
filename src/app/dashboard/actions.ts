@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma } from "../../lib/db.ts";
-import { getCurrentUser } from "../../lib/auth.ts";
+import { prisma } from "../../server/db.ts";
+import { getCurrentUser } from "../../server/auth/session.ts";
 
 /**
  * "Reset demo state" — removes only tickets the demo created (no external id).
@@ -21,10 +21,7 @@ export async function resetDemoAction(): Promise<void> {
 
   if (ids.length > 0) {
     await prisma.ticket.deleteMany({
-      where: {
-        businessId: { in: ids },
-        OR: [{ externalMessageId: null }, { externalMessageId: { startsWith: "sim-" } }],
-      },
+      where: { businessId: { in: ids }, externalMessageId: null },
     });
     await prisma.voiceTestSession.deleteMany({ where: { businessId: { in: ids } } });
   }

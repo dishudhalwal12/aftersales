@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/db.ts";
-import { loadBusinessChunks } from "../../../../lib/business-service.ts";
-import { bestSentences, retrievalConfidence, searchMarkdownRag } from "../../../../lib/rag.ts";
-import { HttpError, errorResponse, readJson } from "../../../../lib/tenant.ts";
+import { prisma } from "../../../../server/db.ts";
+import { loadBusinessChunks } from "../../../../server/business/service.ts";
+import { searchMarkdownRag } from "../../../../server/ai/rag.ts";
+import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +55,11 @@ export async function POST(request: Request) {
     const chunks = await loadBusinessChunks(session.businessId);
     const hits = searchMarkdownRag(chunks, query, 4);
     const top = hits[0];
-    // Same coverage floor as the text path: a voice answer below 50 is a human's job.
-    const confidenceScore = retrievalConfidence(query, hits);
+    const groundedFacts = top ? bestFact(query, top.content) : "";
+    const confidenceScore = top
+      ? Math.max(0, Math.min(95, Math.round((top.score / (top.score + 2)) * 100 + 35)))
+      : 0;
     const escalateToHuman = top === undefined || confidenceScore < 50;
-    const groundedFacts = top === undefined ? "" : bestSentences(query, top.content, 2);
 
     return NextResponse.json({
       businessName: session.business.name,
@@ -73,4 +74,24 @@ export async function POST(request: Request) {
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+function bestFact(query: string, content: string): string {
+  const queryTerms = query.toLowerCase().split(/\W+/).filter((term) => term.length > 2);
+  const sentences = content
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  let best = sentences[0] ?? "";
+  let bestScore = -1;
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const score = queryTerms.reduce((sum, term) => (lower.includes(term) ? sum + 1 : sum), 0);
+    if (score > bestScore) {
+      best = sentence;
+      bestScore = score;
+    }
+  }
+  return best;
 }

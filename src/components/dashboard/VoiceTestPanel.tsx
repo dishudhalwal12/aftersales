@@ -6,7 +6,7 @@ import type {
   VoiceSessionResponse,
   VoiceToolSearchResponse,
   VoiceWebhookResponse,
-} from "../../lib/api-types.ts";
+} from "../../shared/api.ts";
 import { ChannelBadge } from "../ui/Badges.tsx";
 
 const STEPS = ["initiated", "ringing", "in_progress", "completed"] as const;
@@ -29,7 +29,7 @@ export function VoiceTestPanel({
   const [lookup, setLookup] = useState<VoiceToolSearchResponse | null>(null);
 
   const [transcript, setTranscript] = useState(
-    "Caller: I have been charged twice this month and nobody is replying.\nAgent: I can quote the refund policy, but a double charge needs a human. Paging the owner now.",
+    "Caller: My root canal is hurting, can someone help me today?\nAgent: I have the clinic's hours and pricing, but pain needs a human. Asking the clinic to step in.",
   );
   const [escalate, setEscalate] = useState(true);
   const [completion, setCompletion] = useState<VoiceWebhookResponse | null>(null);

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Logo } from "../ui/Logo.tsx";
 import { AiTextModal } from "./AiTextModal.tsx";
 import { emitDataChanged } from "./client.ts";
-import type { BusinessSummary } from "../../lib/api-types.ts";
+import type { BusinessSummary } from "../../shared/api.ts";
 
 export type TabKey = "queue" | "voice" | "brain" | "channels";
 

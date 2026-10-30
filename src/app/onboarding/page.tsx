@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { prisma } from "../../lib/db.ts";
-import { getCurrentUser } from "../../lib/auth.ts";
-import { PRESETS } from "../../lib/seed-facts.ts";
+import { prisma } from "../../server/db.ts";
+import { getCurrentUser } from "../../server/auth/session.ts";
+import { PRESETS } from "../../data/seed-facts.ts";
 import { Logo } from "../../components/ui/Logo.tsx";
 import { OnboardingWizard } from "../../components/onboarding/OnboardingWizard.tsx";
 
