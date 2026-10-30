@@ -35,6 +35,26 @@ string (`bootstrap.min_ver%3D7.1.4.css`), which only resolves when the server UR
 - **Dangling references** — the missing `cropped-favicon-270x270.png` now points at the 192px icon that
   was actually saved, the quality-policy PDF stays linked to the live site, and the WordPress emoji
   loader (a file that was never saved) is switched off instead of 404-ing on every load.
+- **Language** — all visible copy translated from Italian to English (headings, service cards, tags,
+  newsletter consent, footer, meta description, `lang="en"`, JSON-LD `inLanguage`).
+
+## Call to action
+
+The original page's menu button is gone. In its place, pinned top-right where that control lived, is a
+single **Go to Dashboard** button:
+
+```html
+<a class="button" href="http://localhost:3000/auth" …>Go to Dashboard</a>
+```
+
+It points at the app's `/auth` page, which is the flow that already handles all three cases: a signed-in
+visitor is redirected straight to `/dashboard` (or `/onboarding` if they have no business yet), while a
+new visitor gets the sign-in / create-account tabs. Nothing about the session is decided by this static
+page, so an expired cookie can never leave it showing the wrong button.
+
+The menu overlay still exists in the markup but its toggle is hidden (`display:none`, kept because the
+theme's JS looks the element up by class). To change host or port, edit that one `href` — it is the only
+absolute link to the app.
 
 ## What still says EasySell, on purpose
 
@@ -48,5 +68,7 @@ string (`bootstrap.min_ver%3D7.1.4.css`), which only resolves when the server UR
   locally will fail. It is not wired to anything of ours.
 - `wp-theme-easyseller_ego55` remains as a CSS class, and `assets/theme/less_easyseller/style_…css` as
   a stylesheet path — renaming either would mean different files than the ones the saved JS expects.
+- The footer address (`Via della Tecnica 34, Matera`) is the original company's office, kept as-is
+  rather than inventing one for us; the privacy and quality-policy links still leave the replica.
 
-The copy is Italian, as on the original.
+Copy is English throughout except that address and the original brand's proper nouns.
