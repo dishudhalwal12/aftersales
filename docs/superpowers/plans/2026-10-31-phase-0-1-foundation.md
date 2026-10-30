@@ -1,5 +1,9 @@
 # Plan — Phase 0 (runnable workspace) + Phase 1 (Foundation, Landing, Onboarding)
 
+> **Superseded in part (2026-10-31):** the product owner chose the saved reference page
+> (`public/landing`) as the front door, so `/` is that page again and the deck-based landing this
+> plan built now lives at `/home`. Everything else in this plan stands as executed.
+
 **Spec:** `docs/prd/ps_2_5_master_executable_prd_team_41.md` rev 4. §0 (agent rules), §1.2/§1.3
 (design + routes), §3 (schema), §5.1 (businesses contract), §6 Phase 1 + its gate, §8 AT-01/AT-02/AT-05.
 

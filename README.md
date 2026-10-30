@@ -122,11 +122,12 @@ Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/AR
 
 | Route | What it is |
 |---|---|
-| `/` | Our landing page (`src/app/page.tsx`): hero video slot, the three steps, the R1–R7 rule strip |
+| `/` | The saved reference page (`public/landing`), served by a rewrite — the demo's front door. Its CTA opens `/auth` |
+| `/home` | The app's own landing page (`src/app/home/page.tsx`), built from the Team 41 design deck — kept as the alternative front door |
 | `/auth` | Sign in, create account, Continue with Google, 1-click judge demo |
 | `/onboarding` | 4-step wizard, `.md` upload, the two seeded presets |
 | `/dashboard` | Four panels: queue, voice, brain & insights, channels |
-| `/landing` | The saved design reference (`public/landing`, a static snapshot) — reachable, but not the product |
+| `/landing` | The same saved reference as `/`, at its real path |
 
 ---
 

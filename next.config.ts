@@ -8,10 +8,16 @@ const nextConfig: NextConfig = {
     extensionAlias: { ".js": [".ts", ".tsx", ".js"] },
   },
   async rewrites() {
-    // `/` is our own landing page (src/app/page.tsx). `/landing` still serves the saved
-    // reference snapshot, whose assets are referenced from the site root
-    // (`/landing/assets/...`) — it is a design reference, not the product.
-    return [{ source: "/landing", destination: "/landing/index.html" }];
+    // `/` is the saved reference page (public/landing) — the product's front door by
+    // decision, not by default. It is a static snapshot of an external site, kept as a
+    // visual reference; the app's own landing page is at `/home`. A rewrite, not a
+    // redirect: the browser keeps `/` in the address bar while the static page is served
+    // from its real path, and its assets are referenced from the site root
+    // (`/landing/assets/...`) for exactly this reason.
+    return [
+      { source: "/", destination: "/landing/index.html" },
+      { source: "/landing", destination: "/landing/index.html" },
+    ];
   },
 };
 

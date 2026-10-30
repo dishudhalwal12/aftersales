@@ -20,7 +20,14 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = Number(process.env.VERIFY_PORT ?? 3123);
-const BASE = `http://127.0.0.1:${PORT}`;
+/**
+ * Next 16 holds one dev-server lock per project, so a gate run cannot spawn its own
+ * server while `npm run dev` is up. Point it at the running app with
+ *   VERIFY_BASE_URL=http://localhost:3000 npm run verify:phase1
+ * and it asserts against that instance instead of spawning one.
+ */
+const EXTERNAL_BASE = process.env.VERIFY_BASE_URL ?? null;
+const BASE = EXTERNAL_BASE ?? `http://127.0.0.1:${PORT}`;
 const ROOT = process.cwd();
 const NEXT_BIN = join(ROOT, "node_modules", "next", "dist", "bin", "next");
 const BOOT_TIMEOUT_MS = 90_000;
@@ -156,7 +163,7 @@ function startServer() {
 async function waitForServer() {
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (server.exitCode !== null) {
+    if (server !== null && server.exitCode !== null) {
       throw new Error(`next dev exited early (code ${server.exitCode}); log: ${serverLog}`);
     }
     try {
@@ -227,18 +234,26 @@ async function getWithCookie(path, cookie) {
 }
 
 async function landing() {
+  // The front door is the saved reference page in public/landing (a product decision,
+  // not a default). Its CTA is the route into the app.
   const page = await get("/");
   expect("GET / returns 200", page.status === 200, `status ${page.status}`);
-  expectIncludes(page.body, 'data-page="landing"');
-  expectIncludes(page.body, 'id="how-it-works"');
-  expectIncludes(page.body, 'id="rules"');
-  expectIncludes(page.body, 'id="features"');
-  expectIncludes(page.body, "Your support queue, minus the guessing.");
-  expectIncludes(page.body, 'href="/auth"');
-  expectIncludes(page.body, "Sign in");
-  expectIncludes(page.body, "Get started");
-  expectExcludes(page.body, "Sales Digital Agency");
-  expectExcludes(page.body, "Go to dashboard");
+  expectIncludes(page.body, "Sales Digital Agency", "the reference page is served at /");
+  expectIncludes(page.body, "Go to Dashboard", "the reference page carries the app CTA");
+  expectIncludes(page.body, "/auth", "the CTA points at /auth");
+
+  // The app's own landing, built from the Team 41 deck, is kept at /home.
+  const home = await get("/home");
+  expect("GET /home returns 200", home.status === 200, `status ${home.status}`);
+  expectIncludes(home.body, 'data-page="landing"');
+  expectIncludes(home.body, 'id="how-it-works"');
+  expectIncludes(home.body, 'id="rules"');
+  expectIncludes(home.body, 'id="features"');
+  expectIncludes(home.body, "Your support queue, minus the guessing.");
+  expectIncludes(home.body, 'href="/auth"');
+  expectIncludes(home.body, "Sign in");
+  expectIncludes(home.body, "Get started");
+  expectExcludes(home.body, "Go to dashboard");
 }
 
 async function auth() {
@@ -258,9 +273,9 @@ async function auth() {
   expect("GET /dashboard with the demo cookie returns 200", dashboard.status === 200, `status ${dashboard.status}`);
   expectIncludes(dashboard.body, "Live queue", "the dashboard renders the Live queue tab");
 
-  const home = await getWithCookie("/", cookie);
-  expectIncludes(home.body, "Go to dashboard", "the landing page knows a session exists");
-  expectExcludes(home.body, "Get started", "the signed-out CTA is gone for a session");
+  const home = await getWithCookie("/home", cookie);
+  expectIncludes(home.body, "Go to dashboard", "the app landing knows a session exists");
+  expectExcludes(home.body, "Get started", "its signed-out CTA is gone for a session");
 
   const authPage = await get("/auth");
   expectIncludes(authPage.body, "1-click judge demo login", "the auth page shows the judge demo panel");
@@ -462,8 +477,10 @@ async function main() {
     process.exit(1);
   }
 
-  process.stdout.write(`Phase 1 gate — base ${BASE}\n`);
-  startServer();
+  process.stdout.write(
+    `Phase 1 gate — base ${BASE}${EXTERNAL_BASE === null ? "" : " (already running)"}\n`,
+  );
+  if (EXTERNAL_BASE === null) startServer();
   try {
     await waitForServer();
     await group("landing", landing);

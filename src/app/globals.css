@@ -1070,8 +1070,8 @@ pre,
 }
 
 .auth-view {
-  --auth-blue: #0e6b5f;
-  --auth-pink: #12a594;
+  --auth-blue: #1811ff;
+  --auth-pink: #ff2974;
   --auth-line: rgba(0, 0, 0, 0.12);
   --auth-muted: #6f6f6f;
   min-height: 100dvh;
@@ -1215,7 +1215,7 @@ pre,
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: #0a0a0a;
+  background: var(--auth-blue);
 }
 
 .auth-form {
@@ -1250,7 +1250,7 @@ pre,
 }
 .auth-input:focus {
   border-color: var(--auth-blue);
-  box-shadow: 0 0 0 3px rgba(14, 107, 95, 0.12);
+  box-shadow: 0 0 0 3px rgba(24, 17, 255, 0.12);
 }
 
 .auth-btn {
@@ -1276,20 +1276,20 @@ pre,
 }
 
 .auth-btn-primary {
-  background: #0a0a0a;
+  background: var(--auth-blue);
   color: #fff;
 }
 .auth-btn-primary:hover {
-  background: #26262b;
+  background: #0f0ac4;
 }
 
 .auth-btn-google {
   background: #fff;
-  color: #0a0a0a;
-  border-color: rgba(0, 0, 0, 0.22);
+  color: var(--auth-blue);
+  border-color: var(--auth-blue);
 }
 .auth-btn-google:hover {
-  background: #f4f4f1;
+  background: rgba(24, 17, 255, 0.06);
 }
 
 .auth-divider {
@@ -1331,7 +1331,7 @@ pre,
   color: var(--auth-muted);
 }
 
-/* judge path — teal tint, not black (design deck slide 06) */
+/* judge path — a tint of the page's own accent, never a second colour */
 .auth-demo {
   display: flex;
   align-items: center;
@@ -1340,7 +1340,7 @@ pre,
   margin-top: 18px;
   padding: 18px 20px;
   border-radius: 12px;
-  background: #eaf6f2;
+  background: #eef0ff;
 }
 
 .auth-demo-title {
@@ -1372,7 +1372,7 @@ pre,
   transition: background 160ms ease-out;
 }
 .auth-demo-open:hover {
-  background: #0a544b;
+  background: #0f0ac4;
 }
 
 @media (max-width: 520px) {

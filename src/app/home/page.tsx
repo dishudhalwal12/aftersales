@@ -2,18 +2,21 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import Link from "next/link";
 import "./landing.css";
-import { getCurrentUser } from "../server/auth/session.ts";
-import { RULE_REASONS } from "../server/ai/routing.ts";
-import type { RuleId } from "../shared/domain.ts";
+import { getCurrentUser } from "../../server/auth/session.ts";
+import { RULE_REASONS } from "../../server/ai/routing.ts";
+import type { RuleId } from "../../shared/domain.ts";
 
 export const dynamic = "force-dynamic";
 
 /**
  * The public promise (docs/design/screens slide 05).
  *
- * Visual authority is the Team 41 deck: paper white, black ink, one petrol teal,
- * no gradient and no glass. It overrides PRD §1.2's frosted-glass tokens for this
- * screen only — the dashboard keeps its own skin.
+ * Not the front door: `/` is the saved reference page in `public/landing`, by
+ * decision. This page — the app's own landing, built from the Team 41 deck — is
+ * kept at `/home` as the alternative front door.
+ *
+ * Visual authority here is the deck: paper white, black ink, one petrol teal, no
+ * gradient and no glass; the dashboard keeps its own skin.
  */
 
 const STEPS = [
