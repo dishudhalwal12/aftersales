@@ -2,7 +2,6 @@
 
 import { useActionState, useState } from "react";
 import {
-  demoLoginAction,
   googleSignInAction,
   signInAction,
   signUpAction,
@@ -44,14 +43,6 @@ export function AuthPanel({ notice = null }: { notice?: string | null }) {
           Create account
         </button>
       </div>
-
-      <form action={demoLoginAction} style={{ marginBottom: 2 }}>
-        <button type="submit" className="auth-btn auth-btn-judge">
-          <span aria-hidden="true">⚡</span> 1-Click Judge Demo Login
-        </button>
-      </form>
-
-      <div className="auth-divider">or</div>
 
       {error !== null && (
         <p className="auth-error" role="alert">

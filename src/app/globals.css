@@ -1285,14 +1285,6 @@ pre,
   background: #0f0ac4;
 }
 
-.auth-btn-judge {
-  background: var(--auth-blue);
-  color: #fff;
-}
-.auth-btn-judge:hover {
-  background: #0f0ac4;
-}
-
 .auth-btn-google {
   background: #fff;
   color: var(--auth-blue);
