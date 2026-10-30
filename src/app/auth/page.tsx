@@ -12,7 +12,15 @@ const PROOF = [
   ["R7", "A dead model fails closed, not silently."],
 ] as const;
 
-export default async function AuthPage() {
+export default async function AuthPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const rawNotice = params.error;
+  const notice = typeof rawNotice === "string" ? rawNotice : null;
+
   const user = await getCurrentUser();
   if (user) redirect(await postAuthPath(user.id));
 
@@ -75,7 +83,7 @@ export default async function AuthPage() {
           borderLeft: "1px solid var(--card-border)",
         }}
       >
-        <AuthPanel />
+        <AuthPanel notice={notice} />
       </section>
     </main>
   );

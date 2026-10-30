@@ -1,0 +1,65 @@
+{
+  "node": {
+    "00252e2dcd22000ee02bb18bbcc7eb3c2044f7afde": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "exportedName": "signOutAction",
+      "filename": "src/app/auth/actions.ts"
+    },
+    "005cff2fb6064ce34d27867d50a0efa734a8319094": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "exportedName": "demoLoginAction",
+      "filename": "src/app/auth/actions.ts"
+    },
+    "00ec0e170fb51e827d03e2248e10507c5940cae6f4": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "exportedName": "googleSignInAction",
+      "filename": "src/app/auth/actions.ts"
+    },
+    "601c16c35f9696863abfaeb4d1ebf196ec7aafca5a": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "exportedName": "signUpAction",
+      "filename": "src/app/auth/actions.ts"
+    },
+    "607cfdd72df152c70d8521a801696878b3a1156457": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "exportedName": "signInAction",
+      "filename": "src/app/auth/actions.ts"
+    },
+    "0007584fcf259f26c2d264bdeb43d08a77166d2271": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "exportedName": "resetDemoAction",
+      "filename": "src/app/dashboard/actions.ts"
+    }
+  },
+  "edge": {}
+}

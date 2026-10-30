@@ -1,0 +1,21 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/ai/text-query/route": "/api/ai/text-query",
+  "/api/auth/[...nextauth]/route": "/api/auth/[...nextauth]",
+  "/api/businesses/[id]/brain/route": "/api/businesses/[id]/brain",
+  "/api/businesses/[id]/insights/route": "/api/businesses/[id]/insights",
+  "/api/businesses/[id]/tickets/route": "/api/businesses/[id]/tickets",
+  "/api/businesses/route": "/api/businesses",
+  "/api/channels/webhook/[provider]/route": "/api/channels/webhook/[provider]",
+  "/api/health/route": "/api/health",
+  "/api/voice/sarvam-context/route": "/api/voice/sarvam-context",
+  "/api/voice/sarvam-tool-search/route": "/api/voice/sarvam-tool-search",
+  "/api/voice/sarvam-webhook/route": "/api/voice/sarvam-webhook",
+  "/api/voice/start-session/route": "/api/voice/start-session",
+  "/auth/callback/route": "/auth/callback",
+  "/auth/page": "/auth",
+  "/dashboard/page": "/dashboard",
+  "/onboarding/page": "/onboarding",
+  "/page": "/"
+}

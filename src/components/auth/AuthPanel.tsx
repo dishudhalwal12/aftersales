@@ -13,14 +13,14 @@ type Tab = "signin" | "signup";
 
 const initial: AuthState = EMPTY_AUTH_STATE;
 
-export function AuthPanel() {
+export function AuthPanel({ notice = null }: { notice?: string | null }) {
   const [tab, setTab] = useState<Tab>("signin");
   const [signInState, signIn] = useActionState(signInAction, initial);
   const [signUpState, signUp] = useActionState(signUpAction, initial);
   const [googleState, google] = useActionState(googleSignInAction, initial);
 
   const pending = tab === "signin" ? signInState : signUpState;
-  const error = pending.error ?? googleState.error;
+  const error = pending.error ?? googleState.error ?? notice;
 
   return (
     <div className="glass panel fade-in" style={{ width: "100%", maxWidth: 460 }}>
@@ -156,8 +156,8 @@ export function AuthPanel() {
         </button>
       </form>
       <p className="tiny muted" style={{ marginTop: 10 }}>
-        Google sign-in reports itself unavailable until OAuth keys are set. No secret is ever
-        bundled into the client.
+        Google sign-in goes through Supabase; with no keys configured the button says so instead of
+        failing silently. No secret is ever bundled into the client.
       </p>
     </div>
   );

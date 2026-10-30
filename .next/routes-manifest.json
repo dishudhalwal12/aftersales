@@ -1,0 +1,170 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "onMatchHeaders": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/auth/[...nextauth]",
+      "regex": "^/api/auth/(.+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPnextauth": "nxtPnextauth"
+      },
+      "namedRegex": "^/api/auth/(?<nxtPnextauth>.+?)(?:/)?$"
+    },
+    {
+      "page": "/api/businesses/[id]/brain",
+      "regex": "^/api/businesses/([^/]+?)/brain(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/businesses/(?<nxtPid>[^/]+?)/brain(?:/)?$"
+    },
+    {
+      "page": "/api/businesses/[id]/insights",
+      "regex": "^/api/businesses/([^/]+?)/insights(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/businesses/(?<nxtPid>[^/]+?)/insights(?:/)?$"
+    },
+    {
+      "page": "/api/businesses/[id]/tickets",
+      "regex": "^/api/businesses/([^/]+?)/tickets(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/businesses/(?<nxtPid>[^/]+?)/tickets(?:/)?$"
+    },
+    {
+      "page": "/api/channels/webhook/[provider]",
+      "regex": "^/api/channels/webhook/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPprovider": "nxtPprovider"
+      },
+      "namedRegex": "^/api/channels/webhook/(?<nxtPprovider>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/api/ai/text-query",
+      "regex": "^/api/ai/text\\-query(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/ai/text\\-query(?:/)?$"
+    },
+    {
+      "page": "/api/businesses",
+      "regex": "^/api/businesses(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/businesses(?:/)?$"
+    },
+    {
+      "page": "/api/health",
+      "regex": "^/api/health(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/health(?:/)?$"
+    },
+    {
+      "page": "/api/voice/sarvam-context",
+      "regex": "^/api/voice/sarvam\\-context(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/voice/sarvam\\-context(?:/)?$"
+    },
+    {
+      "page": "/api/voice/sarvam-tool-search",
+      "regex": "^/api/voice/sarvam\\-tool\\-search(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/voice/sarvam\\-tool\\-search(?:/)?$"
+    },
+    {
+      "page": "/api/voice/sarvam-webhook",
+      "regex": "^/api/voice/sarvam\\-webhook(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/voice/sarvam\\-webhook(?:/)?$"
+    },
+    {
+      "page": "/api/voice/start-session",
+      "regex": "^/api/voice/start\\-session(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/voice/start\\-session(?:/)?$"
+    },
+    {
+      "page": "/auth",
+      "regex": "^/auth(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/auth(?:/)?$"
+    },
+    {
+      "page": "/auth/callback",
+      "regex": "^/auth/callback(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/auth/callback(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/onboarding",
+      "regex": "^/onboarding(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/onboarding(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

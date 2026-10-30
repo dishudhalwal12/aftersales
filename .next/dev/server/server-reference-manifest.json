@@ -1,0 +1,46 @@
+{
+  "node": {
+    "601eebb314f866ba5d5ba10ff399deb24b29af52c0": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": "[project]/.next-internal/server/app/auth/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/auth/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "signUpAction"
+    },
+    "608bd605c1679492f7fbbee4d8472e41bbdc802373": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": "[project]/.next-internal/server/app/auth/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/auth/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "signInAction"
+    },
+    "006c48090b9499e48f3e35beaeb53b1f004a3e22e0": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": "[project]/.next-internal/server/app/auth/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/auth/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "googleSignInAction"
+    },
+    "004507a7d81458c755ce4a054f0bcd40f2d9b87500": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": "[project]/.next-internal/server/app/auth/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/auth/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "demoLoginAction"
+    }
+  },
+  "edge": {},
+  "encryptionKey": "X8ITTRGdbSAoy2h8CTJfpotYajhS/+pScfzIfn/lzbc="
+}

@@ -1,0 +1,82 @@
+{
+  "node": {
+    "005cff2fb6064ce34d27867d50a0efa734a8319094": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": 4816,
+          "async": false
+        },
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "demoLoginAction"
+    },
+    "00ec0e170fb51e827d03e2248e10507c5940cae6f4": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": 4816,
+          "async": false
+        },
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "googleSignInAction"
+    },
+    "607cfdd72df152c70d8521a801696878b3a1156457": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": 4816,
+          "async": false
+        },
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "signInAction"
+    },
+    "601c16c35f9696863abfaeb4d1ebf196ec7aafca5a": {
+      "workers": {
+        "app/auth/page": {
+          "moduleId": 4816,
+          "async": false
+        },
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "signUpAction"
+    },
+    "00252e2dcd22000ee02bb18bbcc7eb3c2044f7afde": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "filename": "src/app/auth/actions.ts",
+      "exportedName": "signOutAction"
+    },
+    "0007584fcf259f26c2d264bdeb43d08a77166d2271": {
+      "workers": {
+        "app/dashboard/page": {
+          "moduleId": 66744,
+          "async": false
+        }
+      },
+      "filename": "src/app/dashboard/actions.ts",
+      "exportedName": "resetDemoAction"
+    }
+  },
+  "edge": {},
+  "encryptionKey": "fBAGjg7TUDUQ4TUKNyueXgEJYSlONo6xRsfwa8xnGa0="
+}
