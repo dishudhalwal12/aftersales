@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "./client.ts";
-import type { TextQueryResponse } from "../../lib/api-types.ts";
+import type { TextQueryResponse } from "../../shared/api.ts";
 import {
   ActionPill,
   ChannelBadge,

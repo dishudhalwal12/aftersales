@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, emitDataChanged, timeAgo, useDataChanged } from "./client.ts";
-import type { TicketDetailResponse, TicketListResponse, TicketSummary } from "../../lib/api-types.ts";
+import type { TicketDetailResponse, TicketListResponse, TicketSummary } from "../../shared/api.ts";
 import {
   ActionPill,
   ChannelBadge,

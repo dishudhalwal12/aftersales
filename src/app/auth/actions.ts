@@ -1,17 +1,17 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { prisma } from "../../lib/db.ts";
+import { prisma } from "../../server/db.ts";
 import {
   endSession,
   hashPassword,
   postAuthPath,
   startSession,
   verifyPassword,
-} from "../../lib/auth.ts";
+} from "../../server/auth/session.ts";
 import type { AuthState } from "./state.ts";
-import { authBaseUrl, googleCallbackUrl, readSupabaseConfig } from "../../lib/supabase/config.ts";
-import { createSupabaseServerClient } from "../../lib/supabase/server.ts";
+import { authBaseUrl, googleCallbackUrl, readSupabaseConfig } from "../../server/auth/supabase/config.ts";
+import { createSupabaseServerClient } from "../../server/auth/supabase/server.ts";
 
 const DEMO_EMAIL = "judge@demo.aftersales.ai";
 

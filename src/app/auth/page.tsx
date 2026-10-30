@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser, postAuthPath } from "../../lib/auth.ts";
+import { getCurrentUser, postAuthPath } from "../../server/auth/session.ts";
 import { AuthPanel } from "../../components/auth/AuthPanel.tsx";
 
 export const dynamic = "force-dynamic";

@@ -7,7 +7,7 @@ interchangeable.
 | # | URL | Who redirects to it | Where it is configured |
 |---|---|---|---|
 | 1 | `https://<project-ref>.supabase.co/auth/v1/callback` | **Google → Supabase** (hop 1) | Google Cloud Console → APIs & Services → Credentials → OAuth client → **Authorized redirect URIs** |
-| 2 | `http://localhost:3000/auth/callback` | **Supabase → our app** (hop 2) | Supabase → Authentication → URL Configuration → **Redirect URLs**; `src/lib/supabase/config.ts` builds it from `NEXTAUTH_URL` |
+| 2 | `http://localhost:3000/auth/callback` | **Supabase → our app** (hop 2) | Supabase → Authentication → URL Configuration → **Redirect URLs**; `src/server/auth/supabase/config.ts` builds it from `NEXTAUTH_URL` |
 | 3 | `http://localhost:3000` | where the browser lands when hop 2 has no `redirect_to` | Supabase → Authentication → URL Configuration → **Site URL** |
 
 For this project:
@@ -27,7 +27,7 @@ For this project:
    `User` row, sets the app's own `as_session` cookie, and redirects through `postAuthPath()`.
 
 Supabase never issues a session we keep. From step 4 onward the request is indistinguishable from a
-password login, and `auth-crypto.ts` is the only thing that signs anything.
+password login, and `src/server/auth/crypto.ts` is the only thing that signs anything.
 
 ## Deliberate constraints
 

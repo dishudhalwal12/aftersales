@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/db.ts";
-import { loadBusinessChunks } from "../../../../lib/business-service.ts";
-import { searchMarkdownRag } from "../../../../lib/rag.ts";
-import { HttpError, errorResponse, readJson } from "../../../../lib/tenant.ts";
+import { prisma } from "../../../../server/db.ts";
+import { loadBusinessChunks } from "../../../../server/business/service.ts";
+import { searchMarkdownRag } from "../../../../server/ai/rag.ts";
+import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

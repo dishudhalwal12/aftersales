@@ -7,15 +7,15 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
-import { prisma } from "../../../lib/db.ts";
-import { postAuthPath } from "../../../lib/auth.ts";
+import { prisma } from "../../../server/db.ts";
+import { postAuthPath } from "../../../server/auth/session.ts";
 import {
   SESSION_COOKIE,
   sessionCookieOptions,
   signSessionToken,
-} from "../../../lib/auth-crypto.ts";
-import { authBaseUrl } from "../../../lib/supabase/config.ts";
-import { createSupabaseServerClient } from "../../../lib/supabase/server.ts";
+} from "../../../server/auth/crypto.ts";
+import { authBaseUrl } from "../../../server/auth/supabase/config.ts";
+import { createSupabaseServerClient } from "../../../server/auth/supabase/server.ts";
 
 export const dynamic = "force-dynamic";
 

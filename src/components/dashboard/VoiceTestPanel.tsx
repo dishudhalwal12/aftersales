@@ -6,7 +6,7 @@ import type {
   VoiceSessionResponse,
   VoiceToolSearchResponse,
   VoiceWebhookResponse,
-} from "../../lib/api-types.ts";
+} from "../../shared/api.ts";
 import { ChannelBadge } from "../ui/Badges.tsx";
 
 const STEPS = ["initiated", "ringing", "in_progress", "completed"] as const;

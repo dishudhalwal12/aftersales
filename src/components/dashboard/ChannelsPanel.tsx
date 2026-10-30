@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, emitDataChanged } from "./client.ts";
-import type { ChannelStateResponse, WebhookResponse } from "../../lib/api-types.ts";
+import type { ChannelStateResponse, WebhookResponse } from "../../shared/api.ts";
 
 const PROVIDERS = [
   { key: "whatsapp", label: "WhatsApp", note: "Inbound webhook + simulated inbox" },

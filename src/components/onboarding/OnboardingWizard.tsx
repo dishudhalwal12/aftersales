@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../dashboard/client.ts";
-import type { BusinessFacts } from "../../lib/types.ts";
+import type { BusinessFacts } from "../../shared/domain.ts";
 
 interface CreatedBusiness {
   businessId: string;

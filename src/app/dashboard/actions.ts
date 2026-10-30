@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma } from "../../lib/db.ts";
-import { getCurrentUser } from "../../lib/auth.ts";
+import { prisma } from "../../server/db.ts";
+import { getCurrentUser } from "../../server/auth/session.ts";
 
 /**
  * "Reset demo state" — removes only tickets the demo created (no external id).

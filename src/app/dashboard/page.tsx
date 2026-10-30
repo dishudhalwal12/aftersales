@@ -1,15 +1,15 @@
 import { redirect } from "next/navigation";
-import { prisma } from "../../lib/db.ts";
-import { getCurrentUser } from "../../lib/auth.ts";
-import { resolveProvider } from "../../lib/llm-orchestrator.ts";
-import { sarvamStatus } from "../../lib/sarvam.ts";
+import { prisma } from "../../server/db.ts";
+import { getCurrentUser } from "../../server/auth/session.ts";
+import { resolveProvider } from "../../server/ai/orchestrator.ts";
+import { sarvamStatus } from "../../server/voice/sarvam.ts";
 import { signOutAction } from "../auth/actions.ts";
 import { DashboardShell, type TabKey } from "../../components/dashboard/DashboardShell.tsx";
 import { LiveQueuePanel } from "../../components/dashboard/LiveQueuePanel.tsx";
 import { VoiceTestPanel } from "../../components/dashboard/VoiceTestPanel.tsx";
 import { BrainInsightsPanel } from "../../components/dashboard/BrainInsightsPanel.tsx";
 import { ChannelsPanel } from "../../components/dashboard/ChannelsPanel.tsx";
-import type { BusinessSummary } from "../../lib/api-types.ts";
+import type { BusinessSummary } from "../../shared/api.ts";
 import { resetDemoAction } from "./actions.ts";
 
 export const dynamic = "force-dynamic";

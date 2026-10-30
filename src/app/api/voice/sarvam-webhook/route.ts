@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/db.ts";
-import { getCurrentUser } from "../../../../lib/auth.ts";
-import { HttpError, errorResponse, readJson } from "../../../../lib/tenant.ts";
+import { prisma } from "../../../../server/db.ts";
+import { getCurrentUser } from "../../../../server/auth/session.ts";
+import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

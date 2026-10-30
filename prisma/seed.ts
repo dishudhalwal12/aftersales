@@ -8,7 +8,7 @@
 
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
-import { chunkMarkdown, compileBrainMd } from "../src/lib/rag.ts";
+import { chunkMarkdown, compileBrainMd } from "../src/server/ai/rag.ts";
 import {
   BUSINESS_A,
   BUSINESS_A_TICKETS,
@@ -20,8 +20,8 @@ import {
   RIVAL_EMAIL,
   type SeedBusiness,
   type SeedTicket,
-} from "../src/lib/seed-facts.ts";
-import { hashPassword } from "../src/lib/auth-crypto.ts";
+} from "../src/data/seed-facts.ts";
+import { hashPassword } from "../src/server/auth/crypto.ts";
 
 if (!process.env.DATABASE_URL) {
   const dbPath = fileURLToPath(new URL("./dev.db", import.meta.url));

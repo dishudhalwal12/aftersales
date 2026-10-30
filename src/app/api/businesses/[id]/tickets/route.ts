@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/db.ts";
+import { prisma } from "../../../../../server/db.ts";
 import {
   applyTicketAction,
   isTicketState,
   type TicketAction,
-} from "../../../../../lib/ticket-actions.ts";
-import { errorResponse, loadOwnedBusiness, readJson, requireUser } from "../../../../../lib/tenant.ts";
+} from "../../../../../server/business/tickets.ts";
+import { errorResponse, loadOwnedBusiness, readJson, requireUser } from "../../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 

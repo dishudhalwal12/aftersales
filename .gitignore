@@ -1,25 +1,37 @@
-# Pi package cache (re-cloned from .pi/settings.json)
-.pi/git/
-
-# deps
+# ─── Dependencies ──────────────────────────────────────────────────────────
 node_modules/
+.pnp
+.pnp.js
 
-# build + coverage output
-dist/
-coverage/
+# ─── Build output & caches ─────────────────────────────────────────────────
+# Root-anchored on purpose: the mirrored landing page ships its own
+# `assets/wp/js/dist/` and `assets/theme/css/`, which must stay in the repo.
+/.next/
+/out/
+/dist/
+/build/
+/coverage/
+/.turbo/
+*.tsbuildinfo
+next-env.d.ts
 
-# secrets - .env.example is the only env file that may be committed
+# ─── Local data ────────────────────────────────────────────────────────────
+prisma/*.db
+prisma/*.db-journal
+
+# ─── Secrets — `.env.example` is the only env file that may be committed ───
 .env
 .env.*
 !.env.example
 
-# OS noise
+# ─── Tooling, editors, OS noise ────────────────────────────────────────────
+.thinkrail/
+.pi/git/
 .DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.log
 
-# sqlite database + next build output
-prisma/*.db
-prisma/*.db-journal
-next-env.d.ts
-
-# downloaded reference mirror, not part of the app
+# ─── Reference material (downloaded, never shipped) ────────────────────────
 landingpage.it/

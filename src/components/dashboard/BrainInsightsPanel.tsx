@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, timeAgo, useDataChanged } from "./client.ts";
-import type { BrainResponse, InsightsResponse } from "../../lib/api-types.ts";
+import type { BrainResponse, InsightsResponse } from "../../shared/api.ts";
 import { Metric } from "../ui/Badges.tsx";
 
 export function BrainInsightsPanel({ businessId }: { businessId: string }) {
