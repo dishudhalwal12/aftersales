@@ -84,7 +84,7 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | `Business` | facts, `compiledBrainMd`, `brainVersion` | one row per tenant; `ownerId` is the boundary |
 | `KnowledgeChunk` | `section`, `content`, `keywords`, `chunkIndex` | derived from the markdown; rebuilt on every save |
 | `ChannelConnection` | `channelType`, `status`, `autoSend` | `DRAFT_ONLY` ⇒ R5 |
-| `Ticket` | channel, customer ref, state, the four fields, rule, answer, citations | `externalMessageId` **unique** = idempotency |
+| `Ticket` | channel, customer ref, state, the four fields, rule, answer, citations | `(businessId, externalMessageId)` **unique per business** = idempotency |
 | `TicketEvent` | type + JSON payload | append-only; the drawer renders a summary per type |
 | `VoiceTestSession` | `demoPin`, `judgePhone`, status, transcript, expiry | 10-minute TTL, one business per session |
 
@@ -96,7 +96,8 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | `businessId` in a request body | untrusted | `loadOwnedBusiness()` ⇒ `403` for another owner's row |
 | Classifier output | untrusted | strict schema validation; invalid ⇒ `null` ⇒ R7 |
 | `cited_chunk_ids` from the model | untrusted | filtered against the business's real chunk ids ⇒ R2 if empty |
-| Webhook `externalMessageId` | the idempotency key | replay returns the original ticket with `duplicate: true` |
+| Webhook `externalMessageId` | the idempotency key, scoped to the tenant | replay returns this tenant's original ticket with `duplicate: true`; another tenant's id never resolves here |
+| Webhook `x-channel-token` | a provider credential, not a tenant session | valid ⇒ delivery may write to the business it names; unknown `businessId` ⇒ `404`; absent ⇒ owner cookie required |
 | Voice `demoPin` / `sessionId` | the capability that scopes a call | expired session ⇒ `410`, wrong tenant ⇒ `403` |
 | The end customer | always unauthenticated | zero customer credentials exist to leak |
 
@@ -127,7 +128,7 @@ the owner just created. That is what makes AT-04 (same number, two businesses, n
 
 | | |
 |---|---|
-| **Real** | R1–R7 · scoped BM25 · brain compile/chunk/cite · onboarding · queue + drawer + events · human actions · idempotent webhooks · insights · voice session lifecycle |
+| **Real** | R1–R7 · scoped BM25 · brain compile/chunk/cite · onboarding · queue + drawer + events · human actions · tenant-scoped idempotent webhooks · provider-signed inbound edge · insights · voice session lifecycle |
 | **Conditional** | OpenRouter classifier (needs a key) — otherwise a labelled offline classifier |
 | **Simulated, labelled** | WhatsApp/Instagram/Gmail transports; the Sarvam telephone leg |
 | **Superseded** | `docs/product/CAPABILITY.md` — the Pipecat/Laya/MCP design this repository started from |

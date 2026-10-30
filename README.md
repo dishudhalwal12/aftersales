@@ -48,10 +48,11 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # 120 tests, native runner, no test dependencies
+npm test             # 126 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
+npm run verify:phase3 # boots the app and asserts the Phase 3 channel gate over HTTP + DB
 npm run db:reset     # wipe and re-seed
 ```
 
@@ -70,7 +71,7 @@ the form).
 ## What is real vs what is mocked
 
 **This table is the source of truth. A row may say REAL only if a test, an API call or a screenshot is
-behind it.** Last verified: **2026-10-30, against a production build.**
+behind it.** Last verified: **2026-10-31 — `npm test`, both gate scripts, and a production build.**
 
 | Capability | Status | What is behind it |
 |---|---|---|
@@ -80,7 +81,8 @@ behind it.** Last verified: **2026-10-30, against a production build.**
 | 4-step onboarding → versioned brain | **REAL** | `POST /api/businesses`, `PATCH …/brain` bumps `brainVersion` and re-chunks |
 | Live queue + ticket drawer + event trail | **REAL** | append-only `TicketEvent` rows rendered per ticket |
 | Approve draft / resolve escalation | **REAL** | human-only exits; the agent has no `escalated → replied` path |
-| Webhook idempotency | **REAL** | unique `externalMessageId`; replay returns the same `ticketId` with `duplicate: true` |
+| Webhook idempotency | **REAL** | unique `(businessId, externalMessageId)`; replay returns the same `ticketId` with `duplicate: true`, and the same id under another tenant is that tenant's own ticket |
+| Provider-signed inbound edge | **REAL** | `x-channel-token` matching `CHANNEL_WEBHOOK_SECRET` delivers without a browser session; an unknown `businessId` is `404` |
 | Weekly sentiment + recurring complaints | **REAL** | `src/server/business/insights.ts`, 9 aggregation tests |
 | Voice session, PIN binding, mid-call retrieval, write-back | **REAL** | `start-session` → `sarvam-tool-search` → `sarvam-webhook` |
 | LLM classifier | **CONDITIONAL** | OpenRouter when `OPENROUTER_API_KEY` is set; otherwise a labelled **offline** retrieval classifier |
@@ -140,7 +142,7 @@ Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/AR
 | `GET/PATCH /api/businesses/[id]/tickets` | queue, one ticket with events, human actions |
 | `GET /api/businesses/[id]/insights` | weekly sentiment + recurring complaints |
 | `POST /api/ai/text-query` | text modal + queue responder (PRD §5.2 shape) |
-| `POST /api/channels/webhook/[provider]` | inbound edge with `externalMessageId` idempotency |
+| `POST /api/channels/webhook/[provider]` | inbound edge with tenant-scoped `externalMessageId` idempotency; owner session or `x-channel-token` |
 | `POST /api/voice/start-session` | bind phone + 4-digit PIN to one business |
 | `POST /api/voice/sarvam-tool-search` | per-business grounded facts mid-call |
 | `POST /api/voice/sarvam-context` | per-call variables for the voice agent |
@@ -148,7 +150,8 @@ Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/AR
 | `GET /api/health` | readiness |
 
 Every route resolves `businessId` from the session and runs `loadOwnedBusiness()`; a foreign id is
-`403`, never a filtered list.
+`403`, never a filtered list. The one exception is a provider-token delivery, which names its own
+business and gets a `404` for an unknown id.
 
 ---
 
@@ -164,6 +167,7 @@ Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an emp
 | `OPENROUTER_API_KEY` | no model calls; a *failed* call with `LLM_PROVIDER=openrouter` becomes R7 |
 | `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT` | the voice panel is an explicit dry run |
 | `SARVAM_WEBHOOK_TOKEN` | the voice webhook only accepts the signed-in owner's session |
+| `CHANNEL_WEBHOOK_SECRET` | only the signed-in owner (the dashboard simulator) may deliver to a channel webhook |
 
 No secret is read in a client component. `.env` is gitignored; `.env.example` holds empty values only.
 
@@ -178,15 +182,16 @@ No secret is read in a client component. `.env` is gitignored; `.env.example` ho
 | AT-03 | same question, per-business answers | Pro Plan under CloudPulse → ₹1,499 (R6); under the clinic → R2 escalate |
 | AT-04 | voice personalisation per tenant | two sessions on one number; A returns ₹1,499, B returns R2 escalation |
 | AT-05 | strict tenant isolation | `POST /api/ai/text-query` with the third tenant → `403` |
-| AT-06 | confidence 49 never sends | `tests/lib/routing-engine.test.ts` (49 → R2, 50 + chunk → R6) |
+| AT-06 | confidence 49 never sends | `tests/server/ai/routing.test.ts` (49 → R2, 50 + chunk → R6) |
 | AT-07 | urgency ≥ 80 escalates | unit test + "urgent but grounded" chip in the text modal → R4 |
 | AT-08 | explicit human request escalates | "Let me talk to a real human manager" → R1 |
 | AT-09 | every auto-send cites a real chunk | cited ids filtered against that business's chunk set before routing |
-| AT-10 | webhook replay is one ticket | Channels panel → "Deliver twice" → `duplicate: true`, same `ticketId` |
+| AT-10 | webhook replay is one ticket | `npm run verify:phase3` → deliver twice → same `ticketId`, `duplicate: true`, 4 events; the same id under two tenants → one ticket each |
 | AT-11 | missing/broken classifier fails safe | `LLM_PROVIDER=openrouter` with no key → R7 `failed`, nothing sent |
 | AT-12 | no secret reaches the client | secrets read only in route handlers / server components; `.env` gitignored |
 
-Run `npm test` for AT-06…AT-11 as executable assertions.
+Run `npm test` for AT-06…AT-11 as executable assertions, and `npm run verify:phase3` for AT-05/AT-09/AT-10
+plus the R5 draft hold and the human approve/resolve path.
 
 ---
 
@@ -197,8 +202,9 @@ Run `npm test` for AT-06…AT-11 as executable assertions.
    demonstrable without a key — and it is labelled on every screen that uses it.
 2. **No telephony in this deployment.** The voice path is real up to the call: session, PIN, scoped
    retrieval and ticket write-back. The dial itself needs Sarvam credentials.
-3. **Channel transports are simulated.** The webhook contract, idempotency and routing are real; the
-   WhatsApp/Instagram/Gmail hops are not connected.
+3. **Channel transports are simulated.** The webhook contract, tenant-scoped idempotency, provider
+   token and routing are real; the WhatsApp/Instagram/Gmail hops are not connected. A real adapter
+   normalises a provider payload into the route's shape and sends `x-channel-token`.
 4. **The knowledge base is sample content we wrote.** The retrieval is real; the corpus is not a
    customer's.
 5. **The legacy Pipecat/MCP design is superseded.** `docs/product/CAPABILITY.md` records what changed
