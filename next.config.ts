@@ -10,9 +10,14 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
-        // The mirrored landing page in public/landing references its assets
-        // relatively, so the URL has to keep the filename: at `/landing` the
-        // browser would look for `/assets/...` and find nothing.
+        // The rebranded replica IS the landing page: `src/app/page.tsx` was removed
+        // so there is exactly one home screen. The filename stays in the URL because
+        // the mirrored page resolves its assets relatively.
+        source: "/",
+        destination: "/landing/index.html",
+        permanent: false,
+      },
+      {
         source: "/landing",
         destination: "/landing/index.html",
         permanent: false,

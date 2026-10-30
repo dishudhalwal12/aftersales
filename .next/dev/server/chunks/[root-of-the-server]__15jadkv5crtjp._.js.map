@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 76, "column": 0}, "map": {"version":3,"sources":["file:///Users/dishu/.thinkrail/worktrees/aftersales/workspace-3/src/app/api/health/route.ts"],"sourcesContent":["import { NextResponse } from \"next/server\";\n\nexport const dynamic = \"force-dynamic\";\n\n/**\n * GET /api/health\n * Readiness probe. Never touches the database so a dead datastore is\n * reported as a dependency failure rather than a crashed process.\n */\nexport function GET() {\n  return NextResponse.json({\n    status: \"ok\",\n    service: \"aftersales-ai\",\n    team: \"Team 41\",\n    problemStatement: \"PS 2.5 AI Agent for Automated Customer Support and Ticket Triage\",\n    time: new Date().toISOString(),\n  });\n}\n"],"names":["dynamic","GET","json","status","service","team","problemStatement","time","Date","toISOString"],"mappings":";;;;;;AAAA;;AAEO,MAAMA,UAAU;AAOhB,SAASC;IACd,OAAO,gJAAY,CAACC,IAAI,CAAC;QACvBC,QAAQ;QACRC,SAAS;QACTC,MAAM;QACNC,kBAAkB;QAClBC,MAAM,IAAIC,OAAOC,WAAW;IAC9B;AACF"}}]
-}

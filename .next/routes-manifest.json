@@ -12,6 +12,18 @@
       "priority": true,
       "statusCode": 308,
       "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    },
+    {
+      "source": "/",
+      "destination": "/landing/index.html",
+      "statusCode": 307,
+      "regex": "^(?!/_next)/(?:/)?$"
+    },
+    {
+      "source": "/landing",
+      "destination": "/landing/index.html",
+      "statusCode": 307,
+      "regex": "^(?!/_next)/landing(?:/)?$"
     }
   ],
   "headers": [],
@@ -64,12 +76,6 @@
     }
   ],
   "staticRoutes": [
-    {
-      "page": "/",
-      "regex": "^/(?:/)?$",
-      "routeKeys": {},
-      "namedRegex": "^/(?:/)?$"
-    },
     {
       "page": "/_global-error",
       "regex": "^/_global\\-error(?:/)?$",

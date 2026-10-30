@@ -1,17 +1,21 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getCurrentUser, postAuthPath } from "../../lib/auth.ts";
 import { AuthPanel } from "../../components/auth/AuthPanel.tsx";
-import { Logo } from "../../components/ui/Logo.tsx";
 
 export const dynamic = "force-dynamic";
 
 const PROOF = [
-  ["R2", "Confidence < 50 never sends. It escalates."],
+  ["R2", "Confidence under 50 never sends. It escalates."],
   ["R6", "Grounded answers cite the chunk they came from."],
   ["R7", "A dead model fails closed, not silently."],
 ] as const;
 
+/**
+ * Sign-in, in the landing page's own language: paper white, ink black, the
+ * theme's serif, and the site's blue (#1811FF) for actions. `/` is the mirrored
+ * landing page, so this screen is what its "Go to Dashboard" button opens.
+ */
 export default async function AuthPage({
   searchParams,
 }: {
@@ -25,64 +29,41 @@ export default async function AuthPage({
   if (user) redirect(await postAuthPath(user.id));
 
   return (
-    <main
-      style={{
-        minHeight: "100dvh",
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 0.95fr)",
-      }}
-      className="auth-shell"
-    >
-      <section
-        style={{
-          padding: "48px 56px",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          gap: 40,
-        }}
-      >
-        <Link href="/" aria-label="AfterSales AI home">
-          <Logo />
-        </Link>
+    <main className="auth-view">
+      <section className="auth-brand">
+        <div className="auth-brandtop">
+          <Link href="/" className="auth-wordmark" aria-label="AfterSales AI home">
+            AfterSales<span>AI</span>
+          </Link>
+          <span className="auth-eyebrow">SPHINX &rsquo;26 · PS 2.5</span>
+        </div>
 
-        <div className="stack" style={{ maxWidth: 520, gap: 22 }}>
-          <p className="eyebrow">SPHINX &apos;26 · PS 2.5</p>
-          <h1 style={{ fontSize: 46 }}>
-            Support that
+        <div className="auth-copy">
+          <h1 className="auth-h1">
+            Elevate
             <br />
-            stops guessing.
+            your
+            <br />
+            after-sales.
           </h1>
-          <p className="muted" style={{ fontSize: 16, maxWidth: 460 }}>
+          <p className="auth-lede">
             One inbox for WhatsApp, Instagram, Gmail and your phone line. The agent answers from
             your own words — and the moment it is not sure, a human gets it instead of a guess.
           </p>
-
-          <div className="stack" style={{ gap: 10, marginTop: 6 }}>
+          <ul className="auth-rules">
             {PROOF.map(([rule, text]) => (
-              <div className="row" key={rule} style={{ alignItems: "flex-start" }}>
-                <span className="badge badge-neutral mono">{rule}</span>
-                <span className="muted tiny" style={{ paddingTop: 3 }}>
-                  {text}
-                </span>
-              </div>
+              <li key={rule}>
+                <span className="auth-rule-id">{rule}</span>
+                <span>{text}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
 
-        <p className="tiny muted">Team 41 · Divyanshu Saini &amp; Pulkit Khowal</p>
+        <p className="auth-foot">Team 41 · Divyanshu Saini &amp; Pulkit Khowal</p>
       </section>
 
-      <section
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "48px 32px",
-          background: "rgba(255,255,255,0.35)",
-          borderLeft: "1px solid var(--card-border)",
-        }}
-      >
+      <section className="auth-panel">
         <AuthPanel notice={notice} />
       </section>
     </main>

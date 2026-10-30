@@ -16,6 +16,5 @@
   "/auth/callback/route": "/auth/callback",
   "/auth/page": "/auth",
   "/dashboard/page": "/dashboard",
-  "/onboarding/page": "/onboarding",
-  "/page": "/"
+  "/onboarding/page": "/onboarding"
 }

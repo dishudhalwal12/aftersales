@@ -345,7 +345,19 @@
     "turbopack": {
       "root": "/Users/dishu/.thinkrail/worktrees/aftersales/workspace-3"
     },
-    "distDirRoot": ".next"
+    "distDirRoot": ".next",
+    "_originalRedirects": [
+      {
+        "source": "/",
+        "destination": "/landing/index.html",
+        "permanent": false
+      },
+      {
+        "source": "/landing",
+        "destination": "/landing/index.html",
+        "permanent": false
+      }
+    ]
   },
   "appDir": "/Users/dishu/.thinkrail/worktrees/aftersales/workspace-3",
   "relativeAppDir": "",
