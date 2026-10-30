@@ -14,6 +14,11 @@
  *
  * Exit code 0 when every check passes, 1 otherwise. The dev server is killed in `finally`,
  * including when a check throws.
+ *
+ * Classifier assumption: the R1/R5/AT-09 assertions are deterministic with the offline classifier
+ * (`LLM_PROVIDER=heuristic`). With a model provider the R1–R7 routing stays deterministic, but the
+ * classifier's confidence/sentiment fields can move which rule matches, so the rule ids in this gate
+ * describe the offline deployment it runs against.
  */
 
 import { spawn } from "node:child_process";
@@ -101,6 +106,16 @@ async function patch(path, body, cookie) {
     redirect: "manual",
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.text(), headers: response.headers };
+}
+
+async function postRaw(path, raw, cookie) {
+  const response = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/json", ...(cookie === undefined ? {} : { cookie }) },
+    body: raw,
   });
   return { status: response.status, body: await response.text(), headers: response.headers };
 }
@@ -333,6 +348,11 @@ async function crossTenantIdempotency() {
     externalMessageId,
   });
   expect("the rival's own delivery is created", nimbus.duplicate === false, `duplicate ${nimbus.duplicate}`);
+  expect(
+    "the rival's answer is non-empty (so the leak check below is meaningful)",
+    nimbus.answer.length > 0,
+    "rival answer was empty",
+  );
 
   const posted = await post(
     "/api/channels/webhook/whatsapp",
@@ -365,7 +385,8 @@ async function crossTenantIdempotency() {
   );
   expect(
     "AT-05: the delivery never leaks the other tenant's answer",
-    !String(answer.answer).includes("No refunds after the first 24 hours"),
+    answer.answer !== nimbus.answer &&
+      !String(answer.answer).includes("No refunds after the first 24 hours"),
     String(answer.answer).slice(0, 80),
   );
 
@@ -436,6 +457,132 @@ async function providerToken() {
   expect("a provider delivery to an unknown business answers 404", unknown.status === 404, `status ${unknown.status}`);
   const phantom = await prisma.ticket.count({ where: { externalMessageId: unknownId } });
   expect("an unknown business creates no ticket", phantom === 0, `rows ${phantom}`);
+}
+
+async function webhookTenancy() {
+  const externalMessageId = `${RUN}-session-foreign`;
+  const posted = await post(
+    "/api/channels/webhook/whatsapp",
+    {
+      businessId: RIVAL,
+      externalMessageId,
+      customerName: "Gate Judge",
+      customerHandle: "+910000000003",
+      query: "What is the price of the Pro Plan?",
+    },
+    judgeCookie,
+  );
+  expect(
+    "AT-05: a session cannot post into another tenant's queue (403)",
+    posted.status === 403,
+    `status ${posted.status}`,
+  );
+  const error = parseJson(posted.body);
+  expect(
+    "the refusal carries the frozen error shape",
+    error?.error?.code === 403 && typeof error.error.message === "string",
+    posted.body.slice(0, 120),
+  );
+  const prisma = await database();
+  const rows = await prisma.ticket.count({ where: { externalMessageId } });
+  expect("the refused delivery writes no row anywhere", rows === 0, `rows ${rows}`);
+}
+
+async function replayRace() {
+  const externalMessageId = `${RUN}-race`;
+  const payload = {
+    businessId: CLOUDPULSE,
+    externalMessageId,
+    customerName: "Gate Judge",
+    customerHandle: "+910000000004",
+    query: "What is the price of the Pro Plan?",
+  };
+  const [first, second] = await Promise.all([
+    post("/api/channels/webhook/whatsapp", payload, judgeCookie),
+    post("/api/channels/webhook/whatsapp", payload, judgeCookie),
+  ]);
+  expect("both racing deliveries return 200", first.status === 200 && second.status === 200, `${first.status}/${second.status}`);
+  const a = parseJson(first.body);
+  const b = parseJson(second.body);
+  if (a === null || b === null) {
+    expect("both racing deliveries return JSON", false, first.body.slice(0, 120));
+    return;
+  }
+  expect(
+    "the race resolves to one ticket id for both callers",
+    typeof a.ticketId === "string" && a.ticketId === b.ticketId,
+    `${a.ticketId} vs ${b.ticketId}`,
+  );
+  expect(
+    "exactly one caller created and one saw the replay",
+    [a.duplicate, b.duplicate].sort().join(",") === "false,true",
+    `[${a.duplicate}, ${b.duplicate}]`,
+  );
+  const prisma = await database();
+  const count = await prisma.ticket.count({ where: { businessId: CLOUDPULSE, externalMessageId } });
+  expect("the race leaves exactly one ticket row", count === 1, `count ${count}`);
+  const detail = parseJson(
+    (await get(`/api/businesses/${CLOUDPULSE}/tickets?ticketId=${a.ticketId}`, judgeCookie)).body,
+  );
+  expect(
+    "the race leaves exactly one response trail",
+    Array.isArray(detail?.events) && detail.events.length === 4,
+    `${Array.isArray(detail?.events) ? detail.events.length : "no"} events`,
+  );
+}
+
+async function malformedPayloads() {
+  const prisma = await database();
+  const before = await prisma.ticket.count({ where: { businessId: CLOUDPULSE } });
+
+  const notJson = await postRaw("/api/channels/webhook/whatsapp", "{not json", judgeCookie);
+  const notJsonBody = parseJson(notJson.body);
+  expect("a non-JSON body answers 400", notJson.status === 400, `status ${notJson.status}`);
+  expect(
+    "the non-JSON refusal carries the frozen error shape",
+    notJsonBody?.error?.code === 400 && typeof notJsonBody.error.message === "string",
+    notJson.body.slice(0, 120),
+  );
+
+  const missingId = await post(
+    "/api/channels/webhook/whatsapp",
+    { businessId: CLOUDPULSE, query: "hello" },
+    judgeCookie,
+  );
+  const missingIdBody = parseJson(missingId.body);
+  expect("a missing externalMessageId answers 400", missingId.status === 400, `status ${missingId.status}`);
+  expect(
+    "the refusal names the missing field",
+    missingIdBody?.error?.code === 400 && String(missingIdBody.error.message).includes("externalMessageId"),
+    missingId.body.slice(0, 120),
+  );
+
+  const oversized = await post(
+    "/api/channels/webhook/whatsapp",
+    { businessId: CLOUDPULSE, externalMessageId: `${RUN}-malformed-big`, query: "x".repeat(4001) },
+    judgeCookie,
+  );
+  expect("an oversized query answers 400", oversized.status === 400, `status ${oversized.status}`);
+
+  const unknownProvider = await post(
+    "/api/channels/webhook/telegram",
+    { businessId: CLOUDPULSE, externalMessageId: `${RUN}-malformed-provider`, query: "hello" },
+    judgeCookie,
+  );
+  const unknownBody = parseJson(unknownProvider.body);
+  expect("an unknown provider answers 404", unknownProvider.status === 404, `status ${unknownProvider.status}`);
+  expect(
+    "the unknown provider carries the frozen error shape",
+    unknownBody?.error?.code === 404,
+    unknownProvider.body.slice(0, 120),
+  );
+
+  const after = await prisma.ticket.count({ where: { businessId: CLOUDPULSE } });
+  expect("no malformed delivery creates a ticket", after === before, `${before} -> ${after}`);
+  const stray = await prisma.ticket.count({
+    where: { externalMessageId: { startsWith: `${RUN}-malformed` } },
+  });
+  expect("no malformed delivery leaves a stray row", stray === 0, `rows ${stray}`);
 }
 
 async function draftOnlyR5() {
@@ -643,6 +790,9 @@ async function main() {
     await group("idempotency (AT-10)", idempotency);
     await group("cross-tenant idempotency (AT-05)", crossTenantIdempotency);
     await group("provider token", providerToken);
+    await group("webhook tenancy (session path)", webhookTenancy);
+    await group("replay race", replayRace);
+    await group("malformed payloads", malformedPayloads);
     await group("R5 draft-only", draftOnlyR5);
     await group("escalation + resolve (R1)", escalation);
     await group("insights", insights);
