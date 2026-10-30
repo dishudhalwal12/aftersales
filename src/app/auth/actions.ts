@@ -10,7 +10,12 @@ import {
   verifyPassword,
 } from "../../server/auth/session.ts";
 import type { AuthState } from "./state.ts";
-import { authBaseUrl, googleCallbackUrl, readSupabaseConfig } from "../../server/auth/supabase/config.ts";
+import {
+  authBaseUrl,
+  googleCallbackUrl,
+  readSupabaseConfig,
+  SUPABASE_ENV_HINT,
+} from "../../server/auth/supabase/config.ts";
 import { createSupabaseServerClient } from "../../server/auth/supabase/server.ts";
 
 const DEMO_EMAIL = "judge@demo.aftersales.ai";
@@ -95,8 +100,7 @@ export async function demoLoginAction(): Promise<void> {
 export async function googleSignInAction(): Promise<AuthState> {
   if (readSupabaseConfig() === null) {
     return {
-      error:
-        "Google sign-in is not configured: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are missing.",
+      error: `Google sign-in is not configured: set ${SUPABASE_ENV_HINT}.`,
     };
   }
 

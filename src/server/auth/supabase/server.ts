@@ -6,13 +6,15 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { readSupabaseConfig } from "./config.ts";
+import { readSupabaseConfig, SUPABASE_ENV_HINT } from "./config.ts";
 
 export async function createSupabaseServerClient() {
   const config = readSupabaseConfig();
   if (!config) {
     throw new Error(
-      "Supabase is not configured: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are missing.",
+      "Supabase is not configured: set " +
+        SUPABASE_ENV_HINT +
+        " in the environment.",
     );
   }
 

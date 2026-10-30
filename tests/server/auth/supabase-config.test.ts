@@ -33,6 +33,32 @@ describe("readSupabaseConfig", () => {
     assert.deepEqual(config, { url: "https://abc.supabase.co", anonKey: KEY });
   });
 
+  it("reads the unprefixed names a deployment should use", () => {
+    const config = readSupabaseConfig({
+      SUPABASE_URL: "https://abc.supabase.co",
+      SUPABASE_ANON_KEY: KEY,
+    });
+    assert.deepEqual(config, { url: "https://abc.supabase.co", anonKey: KEY });
+  });
+
+  it("prefers the unprefixed names when both pairs are set", () => {
+    const config = readSupabaseConfig({
+      SUPABASE_URL: "https://new.supabase.co",
+      SUPABASE_ANON_KEY: KEY,
+      NEXT_PUBLIC_SUPABASE_URL: "https://old.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "sb_publishable_old",
+    });
+    assert.deepEqual(config, { url: "https://new.supabase.co", anonKey: KEY });
+  });
+
+  it("falls back to a half-set NEXT_PUBLIC pair", () => {
+    const config = readSupabaseConfig({
+      SUPABASE_URL: "https://abc.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: KEY,
+    });
+    assert.deepEqual(config, { url: "https://abc.supabase.co", anonKey: KEY });
+  });
+
   it("accepts a local Supabase CLI url over http", () => {
     const config = readSupabaseConfig({
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",

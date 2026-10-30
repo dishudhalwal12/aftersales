@@ -35,7 +35,7 @@ password login, and `src/server/auth/crypto.ts` is the only thing that signs any
   otherwise the OAuth round trip could be pointed at an attacker's host.
 - An existing password account keeps its password when Google is linked: the upsert only fills
   `googleId`, so Google is a second door into the same user.
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` is public by design and safe in the browser bundle.
+- `SUPABASE_ANON_KEY` is only read server-side (the OAuth handshake), so it is stored as a normal secret. The `NEXT_PUBLIC_SUPABASE_*` names are accepted as a fallback.
   A `service_role` key must never appear in this repo or in `.env.example`.
 
 ## When it breaks
@@ -45,7 +45,7 @@ password login, and `src/server/auth/crypto.ts` is the only thing that signs any
 | Google: `redirect_uri_mismatch` | URL 1 missing or different in Google Cloud Console |
 | Lands on `localhost:3000` with no session | URL 2 missing from Supabase Redirect URLs, so Supabase fell back to Site URL |
 | `/auth?error=…` after coming back | code exchange failed — usually the PKCE cookie was lost (different port or host than the one that started the flow) |
-| Button says "not configured" | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` are empty |
+| Button says "not configured" | `SUPABASE_URL` / `SUPABASE_ANON_KEY` are empty |
 
 ## Verifying the handshake without a browser
 
@@ -54,7 +54,7 @@ curl -sS -D - -o /dev/null \
   "https://grcmcajhioleuczdexxv.supabase.co/auth/v1/authorize?provider=google\
 &redirect_to=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Fcallback\
 &code_challenge=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG&code_challenge_method=s256" \
-  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  -H "apikey: $SUPABASE_ANON_KEY"
 ```
 
 A correct setup answers `302` to `accounts.google.com` with `redirect_uri` = URL 1 and

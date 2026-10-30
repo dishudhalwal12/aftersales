@@ -15,12 +15,36 @@ export interface SupabaseConfig {
 type Env = Record<string, string | undefined>;
 
 /**
+ * Accepted environment variable names, in priority order.
+ *
+ * The unprefixed pair is what a deployment should set. Vercel rejects
+ * `visibility: secret` on a `NEXT_PUBLIC_*` name because those are inlined into
+ * the browser bundle at build time — and nothing here is ever read by the
+ * browser: the anon key only authenticates server-side API calls, so the public
+ * prefix was never required. The `NEXT_PUBLIC_*` names stay supported so an
+ * existing `.env` keeps working.
+ */
+export const SUPABASE_URL_VARS = ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"] as const;
+export const SUPABASE_KEY_VARS = ["SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY"] as const;
+
+/** What to tell a human when the pair is missing — the names they must set. */
+export const SUPABASE_ENV_HINT = `${SUPABASE_URL_VARS[0]} / ${SUPABASE_KEY_VARS[0]} (or the NEXT_PUBLIC_ equivalents)`;
+
+function firstSet(env: Env, names: readonly string[]): string {
+  for (const name of names) {
+    const value = (env[name] ?? "").trim();
+    if (value.length > 0) return value;
+  }
+  return "";
+}
+
+/**
  * `null` means "not configured" — callers must then say so on screen instead of
  * offering a button that cannot work.
  */
 export function readSupabaseConfig(env: Env = process.env): SupabaseConfig | null {
-  const url = (env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim().replace(/\/+$/, "");
-  const anonKey = (env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+  const url = firstSet(env, SUPABASE_URL_VARS).replace(/\/+$/, "");
+  const anonKey = firstSet(env, SUPABASE_KEY_VARS);
 
   // Loosely validated on purpose: hosted projects are https, the local Supabase
   // CLI is http on 127.0.0.1, and both must pass.
