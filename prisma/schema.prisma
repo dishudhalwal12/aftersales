@@ -1,9 +1,13 @@
 // Prisma schema — PRD rev 4 §3, plus one additive column noted inline.
-// SQLite for the hackathon; swap `provider` to "postgresql" without touching models.
+// Postgres on Supabase. `url` goes through the connection pooler (port 6543)
+// because serverless functions open a connection per invocation; `directUrl`
+// is the port-5432 connection that `prisma db push` / `migrate` must use,
+// since the pooler cannot run DDL.
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
