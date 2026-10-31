@@ -7,6 +7,8 @@ import path from "node:path";
 import makeWASocket, { useMultiFileAuthState } from "@whiskeysockets/baileys";
 import QRCode from "qrcode";
 
+import type { Logger } from "./config";
+import { createBaileysLogger } from "./config";
 import type { WASocketLike } from "./types";
 
 export type AuthState = Awaited<ReturnType<typeof useMultiFileAuthState>>;
@@ -20,22 +22,11 @@ export type AuthStateLoader = (connectionId: string) => Promise<AuthState>;
 export type SessionRemover = (connectionId: string) => Promise<void>;
 export type QrEncoder = (qr: string) => Promise<string>;
 
-// Baileys expects a pino-style logger. We silence it so our own logger is the
-// only output (it also stops the library from printing QR/credential details).
-const quietLogger = {
-  level: "silent",
-  child() {
-    return quietLogger;
-  },
-  trace: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  fatal: () => {},
-};
-
-export function createSocketFactory(): SocketFactory {
+// Baileys expects a pino-style logger. Info/debug stay silent (they carry QR and
+// credential material); warn/error are forwarded, because Bad MAC and stream
+// errors are the only evidence that a "connected" socket stopped delivering.
+export function createSocketFactory(logger: Logger): SocketFactory {
+  const libraryLogger = createBaileysLogger(logger);
   return ({ auth }) => {
     const socket = makeWASocket({
       auth: auth.state,
@@ -43,7 +34,7 @@ export function createSocketFactory(): SocketFactory {
       printQRInTerminal: false,
       syncFullHistory: false,
       markOnlineOnConnect: false,
-      logger: quietLogger as never,
+      logger: libraryLogger as never,
     });
 
     return socket as unknown as WASocketLike;

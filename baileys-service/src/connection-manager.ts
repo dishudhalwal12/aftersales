@@ -11,7 +11,7 @@ import {
   NotConnectedError,
   UpstreamError,
 } from "./errors";
-import { extractInboundMessage } from "./inbound";
+import { extractInboundMessage, skipReason } from "./inbound";
 import type {
   ConnectionManagerApi,
   ConnectionSnapshot,
@@ -95,6 +95,10 @@ export function phoneFromUser(userId: string | null | undefined): string | null 
 export function normalizeRecipient(input: string): string | null {
   const trimmed = input.trim();
   if (/^\d{8,15}@s\.whatsapp\.net$/.test(trimmed)) return trimmed;
+  // WhatsApp now addresses many accounts by LID rather than phone number.
+  // Rewriting a LID into <digits>@s.whatsapp.net sends the reply to a phone
+  // number that does not exist: the API accepts it and nothing is delivered.
+  if (/^\d{8,20}@lid$/.test(trimmed)) return trimmed;
   const digits = trimmed.replace(/[^0-9]/g, "");
   if (digits.length < 8 || digits.length > 15) return null;
   return `${digits}@s.whatsapp.net`;
@@ -401,15 +405,33 @@ export class ConnectionManager implements ConnectionManagerApi {
   }
 
   private handleMessagesUpsert(record: ConnectionRecord, upsert: MessagesUpsert): void {
-    // "notify" is a fresh incoming message; history/appends are ignored.
-    if (upsert.type !== "notify" || !Array.isArray(upsert.messages)) return;
+    const messages = Array.isArray(upsert.messages) ? upsert.messages : [];
+    // Log the arrival even when it is a history sync: silence here is how a
+    // live socket becomes indistinguishable from a dead one.
+    this.options.logger.info("messages.upsert", {
+      connectionId: record.connectionId,
+      type: upsert.type ?? null,
+      count: messages.length,
+    });
 
-    for (const raw of upsert.messages) {
+    // "notify" is a fresh incoming message; history/appends are ignored.
+    if (upsert.type !== "notify") return;
+
+    for (const raw of messages) {
       const message = extractInboundMessage(
         { connectionId: record.connectionId, phoneNumber: record.phoneNumber },
         raw
       );
-      if (!message) continue;
+      if (!message) {
+        this.options.logger.info("skipped inbound message", {
+          connectionId: record.connectionId,
+          reason: skipReason(raw),
+          messageId: raw.key?.id ?? null,
+          remoteJid: raw.key?.remoteJid ?? null,
+          fromMe: raw.key?.fromMe === true,
+        });
+        continue;
+      }
       if (!record.dedupe.add(message.messageId)) {
         this.options.logger.debug("skipping duplicate message", {
           connectionId: record.connectionId,
@@ -420,6 +442,10 @@ export class ConnectionManager implements ConnectionManagerApi {
 
       const hook = this.options.hooks?.onInbound;
       if (!hook) continue;
+      this.options.logger.info("inbound message", {
+        connectionId: record.connectionId,
+        messageId: message.messageId,
+      });
       void Promise.resolve(hook(message)).catch((error: unknown) => {
         this.options.logger.error("inbound forwarding failed", {
           connectionId: record.connectionId,

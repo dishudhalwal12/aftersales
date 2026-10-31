@@ -11,6 +11,7 @@ import {
 } from "./baileys-adapter";
 import { createApp } from "./app";
 import { createLogger, loadConfig } from "./config";
+import { listSavedSessions, shouldPersistSession, writeSessionMeta } from "./sessions";
 import { ConnectionManager } from "./connection-manager";
 import type { InboundMessage, StatusEvent } from "./types";
 import { createJsonPoster } from "./webhook-client";
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
 
   const manager = new ConnectionManager({
     loadAuthState: createAuthStateLoader(config.sessionStoragePath),
-    createSocket: createSocketFactory(),
+    createSocket: createSocketFactory(logger),
     removeSession: createSessionRemover(config.sessionStoragePath),
     encodeQr,
     logger,
@@ -45,7 +46,20 @@ async function main(): Promise<void> {
     reconnectMaxDelayMs: config.reconnectMaxDelayMs,
     hooks: {
       onInbound: (message) => inboundPoster.deliver(message),
-      onStatus: (event) => statusPoster.deliver(event),
+      onStatus: async (event) => {
+        if (event.businessId && shouldPersistSession(event.status)) {
+          await writeSessionMeta(config.sessionStoragePath, event.connectionId, {
+            businessId: event.businessId,
+            phoneNumber: event.phoneNumber,
+          }).catch((error: unknown) => {
+            logger.warn("could not persist session metadata", {
+              connectionId: event.connectionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
+        await statusPoster.deliver(event);
+      },
     },
   });
 
@@ -56,6 +70,31 @@ async function main(): Promise<void> {
       webhookUrl: config.webhookUrl,
       statusWebhookUrl: config.statusWebhookUrl,
     });
+
+    // Resume every paired device on start-up: a bridge restart (or a reboot)
+    // must not leave WhatsApp silently disconnected until someone clicks
+    // Connect in the dashboard.
+    void (async () => {
+      const saved = await listSavedSessions(config.sessionStoragePath);
+      if (saved.length === 0) return;
+      logger.info(`resuming ${saved.length} saved WhatsApp session(s)`);
+      for (const entry of saved) {
+        manager
+          .start(entry.connectionId, entry.businessId)
+          .then((snapshot) => {
+            logger.info("resumed saved WhatsApp session", {
+              connectionId: entry.connectionId,
+              status: snapshot.status,
+            });
+          })
+          .catch((error: unknown) => {
+            logger.warn("could not resume saved WhatsApp session", {
+              connectionId: entry.connectionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+      }
+    })();
   });
 
   let shuttingDown = false;

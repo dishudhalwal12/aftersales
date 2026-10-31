@@ -182,7 +182,6 @@ To test the service alone without WhatsApp credentials:
 ```bash
 npm test          # 29 tests, mocked sockets, no real account
 npm run typecheck
-npm run build
 ```
 
 ---
@@ -193,8 +192,6 @@ npm run build
 | :--- | :--- |
 | `npm run dev` | Start on `PORT` with `tsx watch` (reload on file changes). |
 | `npm start` | Start once with `tsx` (no watch). |
-| `npm run build` | Compile to `dist/` with `tsc -p tsconfig.build.json`. |
-| `npm run start:prod` | Run the compiled `dist/index.js` with plain Node. |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm test` | Vitest suite (fake sockets, fake fetch, no WhatsApp account). |
 | `npm run test:watch` | Vitest in watch mode. |

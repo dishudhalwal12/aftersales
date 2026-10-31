@@ -85,6 +85,8 @@ export type RawWaMessage = {
   key?: {
     id?: string | null;
     remoteJid?: string | null;
+    // Baileys 6.7+ sends the phone-number JID here when remoteJid is a LID.
+    remoteJidAlt?: string | null;
     fromMe?: boolean | null;
   } | null;
   message?: {

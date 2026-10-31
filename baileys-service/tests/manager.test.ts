@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { silentLogger } from "../src/config";
+import { silentLogger, type Logger } from "../src/config";
 import { ConnectionManager } from "../src/connection-manager";
 import type { InboundMessage, StatusEvent } from "../src/types";
 import { FakeSocket, fakeAuth, flush } from "./helpers";
@@ -8,7 +8,15 @@ import { FakeSocket, fakeAuth, flush } from "./helpers";
 const ID = "wa_connection_01";
 const BIZ = "biz_test_01";
 
-function createHarness(overrides: { dedupeLimit?: number } = {}) {
+function recordingLogger(lines: Array<Record<string, unknown>>): Logger {
+  const record = (...args: unknown[]) => {
+    const detail = args.find((arg) => typeof arg === "object" && arg !== null);
+    if (detail) lines.push(detail as Record<string, unknown>);
+  };
+  return { debug: record, info: record, warn: record, error: record };
+}
+
+function createHarness(overrides: { dedupeLimit?: number; logger?: Logger } = {}) {
   const sockets: FakeSocket[] = [];
   const removed: string[] = [];
   const statuses: StatusEvent[] = [];
@@ -25,7 +33,7 @@ function createHarness(overrides: { dedupeLimit?: number } = {}) {
       removed.push(connectionId);
     },
     encodeQr: async (qr) => `data:image/png;base64,${qr}`,
-    logger: silentLogger,
+    logger: overrides.logger ?? silentLogger,
     connectWaitMs: 30,
     reconnectMaxDelayMs: 20,
     dedupeLimit: overrides.dedupeLimit,
@@ -233,6 +241,28 @@ describe("ConnectionManager", () => {
     expect(inbound).toHaveLength(1);
     await manager.shutdown();
   });
+
+  it("logs why a message was skipped instead of dropping it silently", async () => {
+    const lines: Array<Record<string, unknown>> = [];
+    const { manager, sockets, inbound } = createHarness({ logger: recordingLogger(lines) });
+    await connect(manager, sockets);
+
+    sockets[0].emit("messages.upsert", {
+      type: "notify",
+      messages: [
+        {
+          key: { id: "WAMID_SELF", remoteJid: "919812345678@s.whatsapp.net", fromMe: true },
+          message: { conversation: "our own outgoing message" },
+          messageTimestamp: 1_730_000_000,
+        },
+      ],
+    });
+    await flush();
+
+    expect(inbound).toHaveLength(0);
+    expect(lines.some((line) => line.reason === "fromMe")).toBe(true);
+  });
+
 
   it("shuts every socket down", async () => {
     const { manager, sockets } = createHarness();

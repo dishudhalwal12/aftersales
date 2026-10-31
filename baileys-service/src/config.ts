@@ -35,6 +35,47 @@ export function createLogger(level: LogLevel = "info"): Logger {
   };
 }
 
+/**
+ * Adapter for Baileys' pino-style logger.
+ *
+ * The library logs at `info`/`debug` include QR payloads and credential
+ * material, so those stay silent. `warn`/`error` carry protocol failures —
+ * Bad MAC, stream errors, conflicts — which are exactly the ones that make a
+ * "connected" socket stop delivering messages, so they are forwarded.
+ */
+export interface BaileysLoggerLike {
+  level: string;
+  child: () => BaileysLoggerLike;
+  trace: (...args: unknown[]) => void;
+  debug: (...args: unknown[]) => void;
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+  fatal: (...args: unknown[]) => void;
+}
+
+export function createBaileysLogger(logger: Logger): BaileysLoggerLike {
+  const forward =
+    (level: "warn" | "error") =>
+    (...args: unknown[]): void =>
+      logger[level]("baileys", ...args);
+
+  const adapter = {
+    level: "warn",
+    child(): BaileysLoggerLike {
+      return adapter;
+    },
+    trace: () => {},
+    debug: () => {},
+    info: () => {},
+    warn: forward("warn"),
+    error: forward("error"),
+    fatal: forward("error"),
+  };
+
+  return adapter;
+}
+
 export const silentLogger: Logger = {
   debug: () => {},
   info: () => {},

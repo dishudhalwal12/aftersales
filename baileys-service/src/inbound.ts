@@ -37,6 +37,33 @@ export type InboundRecord = {
   phoneNumber: string | null;
 };
 
+export type SkipReason =
+  | "no-chat"
+  | "fromMe"
+  | "status-broadcast"
+  | "group"
+  | "broadcast"
+  | "no-id"
+  | "not-text";
+
+/**
+ * Why a raw Baileys message must not become a support ticket.
+ *
+ * Pure so the reason is testable and so the manager can log it: a silently
+ * dropped message is indistinguishable from one that never arrived.
+ */
+export function skipReason(raw: RawWaMessage): SkipReason | null {
+  const remoteJid = raw.key?.remoteJid;
+  if (!remoteJid) return "no-chat";
+  if (raw.key?.fromMe === true) return "fromMe";
+  if (remoteJid === "status@broadcast") return "status-broadcast";
+  if (remoteJid.endsWith("@g.us")) return "group";
+  if (remoteJid.endsWith("@broadcast")) return "broadcast";
+  if (!raw.key?.id) return "no-id";
+  if (!messageText(raw)) return "not-text";
+  return null;
+}
+
 // Returns null for anything that must not become a support ticket: the
 // service's own outgoing messages, status/broadcast events, group chats and
 // non-text messages (images, stickers, reactions, ...).
@@ -44,21 +71,23 @@ export function extractInboundMessage(
   record: InboundRecord,
   raw: RawWaMessage
 ): InboundMessage | null {
-  const remoteJid = raw.key?.remoteJid;
-  if (!remoteJid || raw.key?.fromMe === true) return null;
-  if (remoteJid === "status@broadcast") return null;
-  if (remoteJid.endsWith("@g.us") || remoteJid.endsWith("@broadcast")) return null;
+  if (skipReason(raw) !== null) return null;
 
-  const messageId = raw.key?.id;
-  if (!messageId) return null;
-
-  const text = messageText(raw);
-  if (!text) return null;
+  const remoteJid = raw.key?.remoteJid as string;
+  const alt = raw.key?.remoteJidAlt;
+  // WhatsApp may address an account by LID; when it also sends the phone JID,
+  // that is the address a reply can actually reach.
+  const sender =
+    remoteJid.endsWith("@lid") && typeof alt === "string" && alt.endsWith("@s.whatsapp.net")
+      ? alt
+      : remoteJid;
+  const messageId = raw.key?.id as string;
+  const text = messageText(raw) as string;
 
   return {
     connectionId: record.connectionId,
     messageId,
-    sender: remoteJid,
+    sender,
     recipient: record.phoneNumber ?? "",
     text,
     messageType: "text",

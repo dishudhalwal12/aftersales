@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DedupeCache } from "../src/dedupe";
-import { extractInboundMessage } from "../src/inbound";
+import { extractInboundMessage, skipReason } from "../src/inbound";
 import type { RawWaMessage } from "../src/types";
 
 const record = {
@@ -88,5 +88,48 @@ describe("DedupeCache", () => {
     expect(cache.size).toBe(3);
     // "a" was evicted, so seeing it again counts as new.
     expect(cache.add("a")).toBe(true);
+  });
+});
+
+  it("answers the phone JID when WhatsApp addresses the sender by LID", () => {
+    const result = extractInboundMessage(record, message({
+      key: {
+        id: "WAMID_LID",
+        remoteJid: "30425883926709@lid",
+        remoteJidAlt: "919700000001@s.whatsapp.net",
+        fromMe: false,
+      },
+    }));
+    expect(result?.sender).toBe("919700000001@s.whatsapp.net");
+  });
+
+  it("keeps a LID when no phone JID came with it", () => {
+    const result = extractInboundMessage(record, message({
+      key: { id: "WAMID_LID2", remoteJid: "30425883926709@lid", fromMe: false },
+    }));
+    expect(result?.sender).toBe("30425883926709@lid");
+  });
+
+describe("skipReason", () => {
+  it("returns null when the message is a forwardable inbound text", () => {
+    expect(skipReason(message())).toBeNull();
+  });
+
+  it("names the service's own outgoing messages", () => {
+    expect(skipReason(message({ key: { id: "WAMID_2", remoteJid: "919700000001@s.whatsapp.net", fromMe: true } }))).toBe("fromMe");
+  });
+
+  it("names group and broadcast chats", () => {
+    expect(skipReason(message({ key: { id: "WAMID_3", remoteJid: "120363000000000000@g.us", fromMe: false } }))).toBe("group");
+    expect(skipReason(message({ key: { id: "WAMID_4", remoteJid: "123@broadcast", fromMe: false } }))).toBe("broadcast");
+  });
+
+  it("names status updates", () => {
+    expect(skipReason(message({ key: { id: "WAMID_5", remoteJid: "status@broadcast", fromMe: false } }))).toBe("status-broadcast");
+  });
+
+  it("names non-text messages and messages without a usable id", () => {
+    expect(skipReason(message({ message: { imageMessage: {} } }))).toBe("not-text");
+    expect(skipReason(message({ key: { id: undefined, remoteJid: "919700000001@s.whatsapp.net", fromMe: false } }))).toBe("no-id");
   });
 });
