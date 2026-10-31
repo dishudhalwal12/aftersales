@@ -1,8 +1,7 @@
-# Landing replica (`public/landing`)
+# Landing page (`public/landing`)
 
-A **local, rebranded copy** of the reference agency home page that was saved on
-2026-10-30 from `landingpage.it/` and kept as a visual reference until our own landing page replaces
-it. It is a static snapshot — no WordPress, no PHP, no database.
+The front door at `/`. It is a static snapshot of the reference agency page, rebranded and rewritten
+for AfterSales AI. No WordPress, no PHP, no database.
 
 ```bash
 npm run landing          # http://localhost:8080/
@@ -13,56 +12,77 @@ Open it over **HTTP**, not from the filesystem: the saved asset filenames keep t
 string (`bootstrap.min_ver%3D7.1.4.css`), which only resolves when the server URL-decodes the path.
 `scripts/serve-landing.mjs` does exactly that and nothing else.
 
+This preview only checks layout and copy. All demo links point to `/auth`, which the static server does
+not serve. To click through to sign-in and the dashboard, run `npm run dev` and open
+`http://localhost:3000/`.
+
 ## Layout
 
-| Path | Source |
+| Path | Contents |
 |---|---|
-| `index.html` | the saved page, with asset paths and brand text rewritten |
-| `assets/theme/` | former `wp-content/themes/<theme>/` — CSS, JS (GSAP, Lenis, Barba, Swiper, three.js), fonts, images |
-| `assets/plugins/` | former `wp-content/plugins/` — contact-form-7 and mailin (newsletter) assets |
-| `assets/uploads/` | former `wp-content/uploads/` — photography, client reels, partner logos |
-| `assets/wp/` | former `wp-includes/` — jQuery and the WordPress i18n runtime the theme expects |
+| `index.html` | the static page |
+| `assets/theme/` | CSS, JS (GSAP, Lenis, Barba, Swiper, three.js), fonts, abstract theme images |
+| `assets/uploads/` | the hero video that still needs a product demo replacement |
+| `assets/product/` | new AfterSales assets, currently the favicon |
+| `assets/wp/` | jQuery and the WordPress i18n runtime the theme expects |
 
-## What was changed from the mirror
+## Page sections
 
-- **Structure** — `wp-content/*` and `wp-includes/*` collapsed into `assets/{theme,plugins,uploads,wp}`
-  and every reference in `index.html` rewritten. No JS or CSS referenced those paths, so nothing else
-  needed touching.
-- **Brand text** — `the original brand` → `AFTERSALES` in `<title>`, `og:*`, JSON-LD, the visual headings and
-  the alt text; `info@reference.it` → `info@aftersales.ai`.
-- **Ownership URLs** — `canonical`, `og:url` and the JSON-LD entity URLs now point at
-  `http://localhost:8080/`. This is the one place to change when the page moves to a real domain.
-- **Dangling references** — the missing `cropped-favicon-270x270.png` now points at the 192px icon that
-  was actually saved, and the WordPress emoji loader (a file that was never saved) is switched off
-  instead of 404-ing on every load.
-- **External links** — every URL that pointed at the original site or its social accounts is now `#`.
-  Nothing in this folder can navigate to, or contact, the original brand.
-- **Language** — all visible copy translated from Italian to English (headings, service cards, tags,
-  newsletter consent, footer, meta description, `lang="en"`, JSON-LD `inLanguage`).
+| Section | Purpose |
+|---|---|
+| Hero | fixed video, `Elevate Your Sales`, header, and pinned `Go to Dashboard` CTA |
+| Intro | the product promise and three product facts: 4 channels, 24h coverage, 1 view |
+| Values | five short promises with the existing animated bar treatment |
+| Showreel | after-hours customer story as a large quote |
+| Who it's for | six business categories, no borrowed client logos |
+| What you get | five product cards with typographic `01` to `05` image panels |
+| Languages | Hindi, English, and Hinglish voice strip |
+| Final CTA | `Give every customer an answer.` and a demo link |
+| Footer | tagline, section links, copyright |
+
+## What changed from the saved mirror
+
+- **Copy**: rewritten for AfterSales AI. No agency positioning, no borrowed client names, no tech-stack
+  vocabulary such as RAG, LLM, confidence score, routing rules, or webhooks.
+- **Images**: the old fashion portfolio, agency service photos, Shopify/Meta/Google partner logos, ISO
+  badge, old favicon, and `easyseller.it` social preview are removed. The page currently has no content
+  images. The service card slots are typographic panels that can be replaced with product screenshots.
+- **Newsletter**: removed. The Sendinblue form, its Italian validation strings, and the dead privacy link
+  are gone.
+- **Footer**: the Italian office address, old email, social links, quality policy, and `Website by EGO55`
+  credit are removed.
+- **Navigation**: the four menu items now point at the page sections and `/auth`. The old social links are
+  gone. The header logo, menu layout, and pinned CTA are unchanged.
+- **Metadata**: title, description, canonical URL, Open Graph tags, and JSON-LD now describe AfterSales AI.
+- **Language**: `lang="en-IN"` and `og:locale=en_IN`. The old WPML Italian cookie script is removed.
 
 ## Call to action
 
-The original page's menu button is gone. In its place, pinned top-right where that control lived, is a
-single **Go to Dashboard** button:
+The pinned top-right button is the primary entry into the app from this page. The five card buttons,
+the final CTA, the footer link, and the menu item also point at `/auth`.
 
 ```html
-<a class="button" href="http://localhost:3000/auth" …>Go to Dashboard</a>
+<a class="as-cta" href="/auth">Go to Dashboard</a>
 ```
 
-It points at the app's `/auth` page, which is the flow that already handles all three cases: a signed-in
-visitor is redirected straight to `/dashboard` (or `/onboarding` if they have no business yet), while a
-new visitor gets the sign-in / create-account tabs. Nothing about the session is decided by this static
-page, so an expired cookie can never leave it showing the wrong button.
+`/auth` already handles all cases: a signed-in visitor goes to `/dashboard` or `/onboarding`, and a new
+visitor gets the sign-in and judge demo options. The static page never decides the session state.
 
-The menu overlay still exists in the markup but its toggle is hidden (`display:none`, kept because the
-theme's JS looks the element up by class). To change host or port, edit that one `href` — it is the only
-absolute link to the app.
+## Still needs a product asset
 
-## What is still the original brand's
+- `assets/uploads/2026/03/hero.mp4` is the old hero reel.
 
-- Client work imagery and reels in `assets/uploads/` — those are the agency's portfolio, not our work.
-  They carry no brand name, but they are not ours to claim.
-- The footer address (`Via della Tecnica 34, Matera`) is the original company's office, kept rather than
-  inventing one for us.
+The hero video slot stays in place until the product demo recording is ready. Replace the file or update
+the `<source>` path in `index.html`. The old showreel was removed because it showed another brand's client
+work.
 
-Copy is English throughout except that address and the original brand's proper nouns.
+## Replacing the service card panels
+
+The five cards use `<div class="card_picture card_picture--placeholder"><span>01</span></div>` instead of
+an image. To use product screenshots, replace each panel with:
+
+```html
+<div class="card_picture"><img src="/landing/assets/product/one-inbox.jpg" alt="AfterSales live queue" loading="lazy"></div>
+```
+
+Use portrait images at 1000x1500. Update both the desktop card list and the mobile swiper copy.
