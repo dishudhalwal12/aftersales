@@ -3,9 +3,11 @@ import { prisma } from "../../../../../server/db.ts";
 import {
   applyTicketAction,
   isTicketState,
+  toTicketSummary,
   type TicketAction,
 } from "../../../../../server/business/tickets.ts";
 import { errorResponse, loadOwnedBusiness, readJson, requireUser } from "../../../../../server/auth/tenant.ts";
+import { isTicketChannel } from "../../../../../shared/domain.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +38,7 @@ export async function GET(request: Request, context: Context) {
         );
       }
       return NextResponse.json({
-        ticket: { ...ticket, citedChunkIds: parseCited(ticket.citedChunkIds) },
+        ticket: toTicketSummary(ticket),
         events: ticket.events.map((event) => ({
           id: event.id,
           eventType: event.eventType,
@@ -47,12 +49,21 @@ export async function GET(request: Request, context: Context) {
     }
 
     const state = url.searchParams.get("state") ?? "all";
+    const channel = url.searchParams.get("channel") ?? "all";
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
+
+    if (channel !== "all" && !isTicketChannel(channel)) {
+      return NextResponse.json(
+        { error: { code: 400, message: "channel is not a known ticket channel" } },
+        { status: 400 },
+      );
+    }
 
     const tickets = await prisma.ticket.findMany({
       where: {
         businessId: business.id,
         ...(state !== "all" && isTicketState(state) ? { state } : {}),
+        ...(channel !== "all" && isTicketChannel(channel) ? { channel } : {}),
       },
       orderBy: { createdAt: "desc" },
       take: limit,
@@ -61,25 +72,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json({
       businessId: business.id,
       count: tickets.length,
-      tickets: tickets.map((ticket) => ({
-        ticketId: ticket.id,
-        channel: ticket.channel,
-        customerName: ticket.customerName,
-        customerHandle: ticket.customerHandle,
-        customerQuery: ticket.customerQuery,
-        state: ticket.state,
-        specialistAssigned: ticket.specialistAssigned,
-        intent: ticket.intent,
-        sentiment: ticket.sentiment,
-        urgencyScore: ticket.urgencyScore,
-        confidenceScore: ticket.confidenceScore,
-        actionStatus: ticket.actionStatus,
-        routingRuleHit: ticket.routingRuleHit,
-        aiDraftOrReply: ticket.aiDraftOrReply,
-        citedChunkIds: parseCited(ticket.citedChunkIds),
-        createdAt: ticket.createdAt.toISOString(),
-        updatedAt: ticket.updatedAt.toISOString(),
-      })),
+      tickets: tickets.map(toTicketSummary),
     });
   } catch (error) {
     return errorResponse(error);
@@ -134,14 +127,6 @@ export async function PATCH(request: Request, context: Context) {
   }
 }
 
-function parseCited(raw: string): string[] {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 function safeParse(raw: string): unknown {
   try {

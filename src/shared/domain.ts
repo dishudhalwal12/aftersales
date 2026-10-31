@@ -21,6 +21,20 @@ export type TicketChannel =
   | "GMAIL"
   | "VOICE";
 
+/** Every channel the queue can filter by, in display order. */
+export const TICKET_CHANNELS = [
+  "TEXT_MODAL",
+  "WHATSAPP",
+  "FACEBOOK",
+  "INSTAGRAM",
+  "GMAIL",
+  "VOICE",
+] as const satisfies readonly TicketChannel[];
+
+export function isTicketChannel(value: unknown): value is TicketChannel {
+  return typeof value === "string" && (TICKET_CHANNELS as readonly string[]).includes(value);
+}
+
 /** The single structured object every classifier call must produce (PRD §4.2). */
 export interface LlmResponse {
   specialist: Specialist;

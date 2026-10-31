@@ -4,6 +4,7 @@ import {
   classifyAndDraft,
   heuristicSentiment,
   heuristicUrgency,
+  openRouterRequestHeaders,
   resolveProvider,
   validateLlmResponse,
 } from "../../../src/server/ai/orchestrator.ts";
@@ -215,6 +216,22 @@ describe("heuristic sentiment and urgency", () => {
 
   it("keeps a routine question under the threshold", () => {
     assert.ok(heuristicUrgency("What are your hours on Saturday?", "neutral") < 80);
+  });
+});
+
+describe("openrouter request headers", () => {
+  it("keeps every header value ASCII so fetch can send the request", () => {
+    const headers = openRouterRequestHeaders("test-key");
+    assert.equal(headers["Authorization"], "Bearer test-key");
+    for (const [name, value] of Object.entries(headers)) {
+      for (const character of `${name}${value}`) {
+        const codePoint = character.codePointAt(0) ?? 0;
+        assert.ok(
+          codePoint <= 0x7e,
+          `header ${name} contains a non-ASCII character U+${codePoint.toString(16).toUpperCase()}`,
+        );
+      }
+    }
   });
 });
 

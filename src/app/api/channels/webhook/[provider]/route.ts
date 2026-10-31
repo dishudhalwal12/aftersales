@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "../../../../../server/db.ts";
 import { respondToContact } from "../../../../../server/business/service.ts";
 import { channelForProvider, isWebhookTokenValid } from "../../../../../server/business/channel-webhook.ts";
+import { transportFor } from "../../../../../server/integrations/channel-transport.ts";
 import {
   HttpError,
   errorResponse,
@@ -98,7 +99,7 @@ export async function GET(request: Request, context: Context) {
       configured: connection !== null,
       status: connection?.status ?? "UNAVAILABLE",
       autoSend: connection?.autoSend ?? false,
-      transport: transportFor(provider.trim().toLowerCase()),
+      transport: transportFor(provider.trim().toLowerCase(), connection?.status ?? "UNAVAILABLE"),
     });
   } catch (error) {
     return errorResponse(error);
@@ -115,9 +116,3 @@ async function loadBusinessForProvider(businessId: string) {
   return business;
 }
 
-function transportFor(provider: string): string {
-  if (provider === "whatsapp") return "simulated inbox (no live Baileys session in this deployment)";
-  if (provider === "instagram") return "simulated inbox (Meta app review not completed)";
-  if (provider === "gmail") return "simulated inbox (OAuth not configured)";
-  return "unknown";
-}

@@ -219,6 +219,17 @@ function extractJson(content: string): unknown {
   }
 }
 
+// Header values must be ASCII: fetch rejects any code point above 255 with a
+// ByteString error before the request leaves the process, which silently turned
+// every classifier call into R7. Keep this export ASCII-only.
+export function openRouterRequestHeaders(apiKey: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    "X-Title": "AfterSales AI - Team 41",
+  };
+}
+
 async function callOpenRouter(
   apiKey: string,
   model: string,
@@ -232,11 +243,7 @@ async function callOpenRouter(
 
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "X-Title": "AfterSales AI — Team 41",
-    },
+    headers: openRouterRequestHeaders(apiKey),
     body: JSON.stringify({
       model,
       temperature: 0.1,
@@ -253,7 +260,12 @@ async function callOpenRouter(
   });
 
   if (!response.ok) {
-    throw new Error(`classifier provider returned HTTP ${response.status}`);
+    // Keep the provider's reason: a bare status code hides key, credit and
+    // model-access failures behind the same number.
+    const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
+    throw new Error(
+      `classifier provider returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
+    );
   }
 
   const body = (await response.json()) as {

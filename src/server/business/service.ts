@@ -229,9 +229,11 @@ export async function respondToContact(
         },
       });
 
+      // Routing approval is not delivery. "AUTO_SENT" is written by the
+      // channel adapter only after the provider accepted the message.
       const outcomeEvent =
         decision.actionStatus === "answered"
-          ? "AUTO_SENT"
+          ? "AUTO_SEND_APPROVED"
           : decision.actionStatus === "draft"
             ? "DRAFT_SAVED"
             : decision.actionStatus === "escalated"

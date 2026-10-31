@@ -18,8 +18,11 @@ export interface CreateBusinessResult {
   chunkCount: number;
 }
 
-const DEFAULT_CHANNELS: ReadonlyArray<{ type: string; status: string; autoSend: boolean }> = [
-  { type: "WHATSAPP", status: "TEST_MODE", autoSend: false },
+export const DEFAULT_CHANNELS: ReadonlyArray<{ type: string; status: string; autoSend: boolean }> = [
+  // A new business may answer WhatsApp automatically as soon as a device is
+  // linked: the channel-level floor (confidence 50 + a verified citation, R2/R6)
+  // still decides every message, so "auto-send on" cannot mean "always sends".
+  { type: "WHATSAPP", status: "TEST_MODE", autoSend: true },
   { type: "FACEBOOK", status: "UNAVAILABLE", autoSend: false },
   { type: "INSTAGRAM", status: "DRAFT_ONLY", autoSend: false },
   { type: "GMAIL", status: "TEST_MODE", autoSend: false },

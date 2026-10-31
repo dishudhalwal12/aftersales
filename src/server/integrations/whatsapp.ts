@@ -11,7 +11,13 @@ import { randomBytes } from "node:crypto";
 
 import type { ChannelConnection } from "@prisma/client";
 
-import { respondToContact, type InboundContact, type RespondResult } from "../business/service.ts";
+import {
+  channelAutoSendAllowed,
+  respondToContact,
+  type InboundContact,
+  type RespondResult,
+} from "../business/service.ts";
+import { handoffReply } from "../business/handoff.ts";
 import { prisma } from "../db.ts";
 import {
   sendBaileysMessage,
@@ -172,6 +178,34 @@ export function connectionResponse(
   };
 }
 
+export type WhatsappOutbound = { text: string; handoff: boolean } | null;
+
+/**
+ * What may leave the linked device for one inbound message.
+ *
+ *   R6 (grounded)        → the generated answer.
+ *   below the floor      → the fixed hand-off, never the model text.
+ *   duplicate / disabled → nothing at all.
+ *
+ * Pure so the three-way decision is testable without a socket.
+ */
+export function chooseWhatsappOutbound(input: {
+  duplicate: boolean;
+  shouldAutoSend: boolean;
+  answer: string;
+  canSend: boolean;
+  business: { name: string; escalationEmail: string; escalationPhone: string };
+}): WhatsappOutbound {
+  if (input.duplicate || !input.canSend) return null;
+  // The model is instructed to write a polite hand-off when it cannot ground an
+  // answer (confidence < 50). That text is what the owner wants delivered, so a
+  // below-floor reply keeps its escalation for a human but is still sent.
+  if (input.answer.trim().length > 0) {
+    return { text: input.answer, handoff: !input.shouldAutoSend };
+  }
+  return { text: handoffReply(input.business), handoff: true };
+}
+
 export type WhatsappInboundMessage = {
   connectionId: string;
   messageId: string;
@@ -188,6 +222,26 @@ export type WhatsappInboundOutcome = {
   replySent: boolean;
   replyError: string | null;
 };
+
+// Delivery truth belongs to the adapter that performed the send: the routing
+// event says a send was approved, never that WhatsApp accepted it.
+async function recordSendEvent(
+  ticketId: string,
+  eventType: "WHATSAPP_SENT" | "WHATSAPP_SEND_FAILED",
+  payload: Record<string, unknown>
+): Promise<void> {
+  try {
+    await prisma.ticketEvent.create({
+      data: { ticketId, eventType, payload: JSON.stringify(payload) },
+    });
+  } catch (error) {
+    console.error("[whatsapp] could not record send outcome", {
+      ticketId,
+      eventType,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
 
 type SendFn = (
   connectionId: string,
@@ -231,17 +285,43 @@ export async function processWhatsappInbound(
   let replySent = false;
   let replyError: string | null = null;
 
-  if (!outcome.duplicate && outcome.shouldAutoSend && outcome.answer.trim()) {
-    const send = deps.send ?? sendBaileysMessage;
+  const send = deps.send ?? sendBaileysMessage;
+  const canSend = !outcome.duplicate && (await channelAutoSendAllowed(business, "WHATSAPP"));
+
+  // A grounded answer (R6) is sent as-is. Anything below the floor keeps its
+  // escalation for a human, but the customer still gets a fixed hand-off built
+  // from the business record — silence is not a support policy.
+  const outbound = chooseWhatsappOutbound({
+    duplicate: outcome.duplicate,
+    shouldAutoSend: outcome.shouldAutoSend,
+    answer: outcome.answer,
+    canSend,
+    business,
+  });
+
+  if (outbound !== null) {
     try {
-      await send(message.connectionId, business.id, message.sender, outcome.answer);
+      const delivered = await send(message.connectionId, business.id, message.sender, outbound.text);
       replySent = true;
+      await recordSendEvent(outcome.ticketId, "WHATSAPP_SENT", {
+        recipient: message.sender,
+        messageId: delivered.messageId,
+        text: outbound.text.slice(0, 280),
+        ...(outbound.handoff ? { handoff: true } : {}),
+      });
     } catch (error) {
       replyError = error instanceof IntegrationError ? error.reason : "WHATSAPP_SEND_FAILED";
       console.error("[whatsapp] auto-reply failed", {
         connectionId: message.connectionId,
         ticketId: outcome.ticketId,
+        handoff: outbound.handoff,
         error: error instanceof Error ? error.message : error,
+      });
+      await recordSendEvent(outcome.ticketId, "WHATSAPP_SEND_FAILED", {
+        recipient: message.sender,
+        error: replyError,
+        text: outbound.text.slice(0, 280),
+        ...(outbound.handoff ? { handoff: true } : {}),
       });
     }
   }

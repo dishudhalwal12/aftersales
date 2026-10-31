@@ -138,7 +138,7 @@ line("META_WEBHOOK_VERIFY_TOKEN", "the token you typed into Meta's webhook scree
 line("META_GRAPH_VERSION", "optional, defaults to v26.0");
 
 section("8. WhatsApp via the local Baileys service");
-line("BAILEYS_SERVICE_URL", "e.g. http://localhost:8081 while the bridge runs");
+line("BAILEYS_SERVICE_URL", "e.g. http://localhost:3001 while the bridge runs");
 line("BAILEYS_SERVICE_SECRET", "must match the bridge's secret");
 line("BAILEYS_TIMEOUT_MS", "optional, defaults to 15000");
 

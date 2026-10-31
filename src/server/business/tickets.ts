@@ -86,3 +86,60 @@ export const TICKET_STATES: ReadonlySet<string> = new Set([
 export function isTicketState(value: string): value is string {
   return TICKET_STATES.has(value);
 }
+
+/**
+ * The one place a Ticket row becomes the JSON the queue reads.
+ *
+ * The detail endpoint used to spread the Prisma row, which carries `id` and not
+ * `ticketId`; the drawer then PATCHed `{ action }` with no id and the server
+ * answered `field "ticketId" is required`. One mapper means list and detail can
+ * never disagree about the shape again.
+ */
+function parseCited(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function toTicketSummary(ticket: {
+  id: string;
+  channel: string;
+  customerName: string;
+  customerHandle: string;
+  customerQuery: string;
+  state: string;
+  specialistAssigned: string;
+  intent: string;
+  sentiment: string;
+  urgencyScore: number;
+  confidenceScore: number;
+  actionStatus: string;
+  routingRuleHit: string;
+  aiDraftOrReply: string;
+  citedChunkIds: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): Record<string, unknown> {
+  return {
+    ticketId: ticket.id,
+    channel: ticket.channel,
+    customerName: ticket.customerName,
+    customerHandle: ticket.customerHandle,
+    customerQuery: ticket.customerQuery,
+    state: ticket.state,
+    specialistAssigned: ticket.specialistAssigned,
+    intent: ticket.intent,
+    sentiment: ticket.sentiment,
+    urgencyScore: ticket.urgencyScore,
+    confidenceScore: ticket.confidenceScore,
+    actionStatus: ticket.actionStatus,
+    routingRuleHit: ticket.routingRuleHit,
+    aiDraftOrReply: ticket.aiDraftOrReply,
+    citedChunkIds: parseCited(ticket.citedChunkIds),
+    createdAt: ticket.createdAt.toISOString(),
+    updatedAt: ticket.updatedAt.toISOString(),
+  };
+}
