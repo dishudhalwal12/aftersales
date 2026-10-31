@@ -161,3 +161,181 @@ reachable by the voice platform with no shared secret and is scoped instead by t
 id / demo PIN / caller phone it is called with (see the route's header comment). That is a
 deliberate hackathon trade-off, not an oversight — worth revisiting before a real deployment,
 because the PIN is short enough to guess.
+
+## 11. Dynamic business context (31 October 2026)
+
+The agent template is **never edited per business**. An owner saves the business-specific
+context; the on-start tool resolves the tenant from a trusted identifier and returns the
+variables. This replaces "prompt per business" with "one prompt, data per call".
+
+### 11.1 Storage
+
+`BusinessVoiceAgentContext` (1:1 with `Business`, `businessId` is the primary key) holds only
+what the brain does not: `businessAddress`, `weeklyHolidays` (JSON array of weekday names),
+`supportedLanguages` (JSON array), `appointmentPolicy`, `agentInstructions`, plus the mapping
+(`virtualNumber`, `agentId`) and `isActive`. Name, type, description, services, opening hours,
+FAQs, refund policy, escalation contacts and tone stay on `Business` and are composed into the
+payload. Editing any of those through the owner API rebuilds the `KnowledgeChunk` rows and
+bumps `brainVersion` in the same transaction, so text and voice answers cannot drift.
+
+### 11.2 Trusted resolution
+
+`POST /api/voice/sarvam-context` accepts:
+
+| Body | Meaning |
+|---|---|
+| `agentId` and/or `virtualNumber` | trusted path; the DB maps them to exactly one business |
+| `sessionId` / `demoPin` | demo fallback for the shared number |
+
+A `business_id` in the body is ignored. Resolution is strict: unknown identifier → 404;
+more than one business on an identifier, or an agent id and number that point at different
+businesses → 409; mapping row with `isActive = false` → 409. The resolver never returns the
+first match.
+
+Auth: `SARVAM_CONTEXT_TOKEN` (fallback `SARVAM_WEBHOOK_TOKEN`) is compared in constant time
+against `x-saram-token`, `x-sarvam-token`, `x-sarvam-context-token`, or `Authorization: Bearer`.
+If no secret is configured the endpoint still works but reports `contextAuth: "unconfigured"`
+and lists the reason in `warnings` — it never claims to be secured.
+
+### 11.3 Owner API
+
+- `GET /api/businesses/[id]/voice-agent/context` — owner session required; returns the core
+  facts, the call-script fields, the mapping, `brainVersion` and `chunkCount`.
+- `PUT /api/businesses/[id]/voice-agent/context` — same auth. Context fields are replaced;
+  core facts are only replaced for keys present in the body. A number or agent id already
+  mapped to a different business is rejected with 409.
+
+UI: Dashboard → Voice test → **What the phone agent knows**. The save action shows whether the
+brain was rebuilt.
+
+### 11.4 Sarvam dashboard configuration
+
+1. **Agent template** — create variables named exactly
+   `business_name`, `business_type`, `business_description`, `business_address`,
+   `products_services`, `opening_hours`, `weekly_holidays`, `supported_languages`, `faqs`,
+   `appointment_policy`, `return_policy`, `escalation_email`, `escalation_phone`, `agent_tone`,
+   `agent_instructions`, `tool_search_url`. The prompt contains only placeholders — no business
+   names, prices or addresses.
+2. **On-start tool** — `POST <PUBLIC_WEBHOOK_BASE_URL>/api/voice/sarvam-context`, header
+   `x-saram-token: <SARVAM_CONTEXT_TOKEN>`, body sends the call's `agent_id` and/or the
+   `virtual_number` that received the call. Map every returned `variables.*` key onto the
+   template variable of the same name.
+3. **Mid-call tool** — unchanged: `/api/voice/sarvam-tool-search` with `session_id` / query.
+4. **Number → business** — Dashboard → Voice test → mapping fields. Bind each number (or the
+   agent id, when each business has its own agent) to one business before taking real inbound
+   calls. The demo's single shared number intentionally stays unmapped and uses the
+   session/PIN fallback, because binding it to two businesses is refused by design.
+
+### 11.5 Limits
+
+- Values are clipped server-side (1,500 characters for most prose, 2,500 for FAQs, 300 for the
+  address) so a large brain cannot break the Sarvam request.
+- Uniqueness of `virtualNumber` / `agentId` is enforced by the resolver and the owner API, not
+  by a DB constraint — the resolver must be able to see two rows and refuse the call. Two
+  concurrent owner saves could still create a duplicate; the resulting calls fail closed (409).
+- The demo pinned `VoiceTestSession` still expires after 10 minutes; mappings do not expire.
+- `contextAuth: "unconfigured"` must never ship to production; set `SARVAM_CONTEXT_TOKEN`.
+
+## 12. On-demand customizations (31 October 2026)
+
+### 12.1 Storage
+
+`BusinessVoiceAgentCustomization` is one row per `(businessId, customizationType)`:
+
+| column | meaning |
+|---|---|
+| `customizationType` | `availability`, `appointment_booking`, `cancellation_policy`, `rescheduling_policy`, `callback_requests`, `urgent_call_handling`, `business_specific_instructions` |
+| `configuration` | validated JSON (same pattern as `ChannelConnection.configJson`) |
+| `isEnabled` | a disabled row is treated as absent — the agent never applies it |
+
+A new type needs a parser + a default; the table itself does not change. The schema is
+applied with `prisma db push` like the rest of this project (there is no migrations folder).
+
+### 12.2 Availability semantics
+
+Availability is resolved for a **date** in the business's own time zone:
+
+1. a temporary closure covering the date → closed (reason is shareable with the caller);
+2. a date-specific override → its windows / closed flag;
+3. otherwise the recurring weekly schedule.
+
+Each day allows up to three non-overlapping windows. Slot length, buffer, max per slot,
+minimum advance booking and maximum future window are stored on the availability row; no
+slot is ever claimed as bookable — there is no calendar integration in this deployment.
+
+### 12.3 Owner API
+
+- `GET /api/businesses/[id]/voice-agent/customizations`
+- `PUT /api/businesses/[id]/voice-agent/customizations`
+
+Both require the owner session and go through `loadOwnedBusiness`, so a foreign business id
+is a 403. `PUT` accepts either `{ "customizations": { "<type>": { "isEnabled": true,
+"configuration": { … } } } }` or a flat `{ "<type>": { … } }`; unknown types, empty bodies and
+invalid JSON are 400. Every write is re-validated server-side (times, dates, overlap, time
+zone, E.164 transfer number, 20 KB size cap).
+
+UI: Dashboard → Voice test → **Availability and call rules** (weekly grid, date overrides,
+temporary closures, appointment/cancellation/rescheduling settings, callback, urgent and
+business instructions). The existing **What the phone agent knows** panel keeps the general
+profile, FAQs and languages; the two panels do not duplicate fields.
+
+### 12.4 Runtime context
+
+`POST /api/voice/sarvam-context` now also returns `customizations` (resolved availability,
+each enabled configuration, `appointmentMode: "request_only"`, `bookingBackend: "none"`,
+`dateSpecificOverridesRecurring: true`) and adds these keys to `variables`:
+
+`availability_summary`, `available_today`, `todays_hours`, `next_7_days`, `timezone`,
+`appointment_booking`, `appointment_rules`, `appointment_mode`, `cancellation_policy`,
+`rescheduling_policy`, `callback_behavior`, `urgent_call_instructions`,
+`emergency_instructions`, `business_specific_instructions`, `safety_instructions`,
+`request_tool_url`.
+
+The seven-day summary is computed per call in the business time zone, so a date override
+made five minutes ago is what the agent reads. Values are clipped to 3,000 characters.
+`safety_instructions` is mandatory and cannot be switched off.
+
+### 12.5 Request tool
+
+`POST /api/voice/sarvam-request` — body:
+
+```json
+{
+  "requestType": "appointment",
+  "agentId": "…", "virtualNumber": "+91…",
+  "sessionId": "…", "demoPin": "1234",
+  "externalRequestId": "call-abc-1",
+  "customerName": "Asha", "customerPhone": "+919812345678",
+  "preferredDate": "2026-11-04", "preferredTime": "11:20",
+  "notes": "follow-up for a cleaning", "emergency": false
+}
+```
+
+- Identity is resolved exactly like the on-start endpoint: trusted agent/number or
+  session/PIN, with `businessId` honoured **only** for an authenticated owner that owns it.
+- When `SARVAM_CONTEXT_TOKEN` is set, the shared secret is required; otherwise an owner
+  session is required. (Same capability trade-off as the search tool when unconfigured.)
+- Response always contains `"confirmed": false`. Accepted requests become a VOICE ticket in
+  the R5 draft queue (`intent` = `appointment_request` / `reschedule_request` /
+  `cancellation_request` / `callback_request`) and are idempotent on
+  `externalRequestId` (or `sessionId + type` when the platform has no request id).
+- `emergency: true` wins over everything: R1, escalated immediately, urgency 100, and the
+  message tells the caller to contact local emergency services.
+- With appointment booking disabled, an `appointment`/`reschedule` request is **not**
+  recorded; the response tells the agent to offer a callback instead.
+
+Sarvam dashboard: register a tool named e.g. `record_request` pointing at
+`<PUBLIC_WEBHOOK_BASE_URL>/api/voice/sarvam-request`, send `x-saram-token`, and instruct the
+agent to call it after collecting the fields the owner selected. The URL is also injected as
+`request_tool_url`.
+
+### 12.6 Honest limits
+
+- No calendar/booking integration exists, so nothing is ever booked or cancelled. The agent
+  collects a request and says it is pending; the owner confirms in the queue.
+- Date overrides and weekly windows are advisory inputs to the conversation; the agent must
+  not derive specific free slots from them, because actual bookings are unknown.
+- `availability_summary` covers today plus seven days; a caller asking about a later date
+  must be offered a callback rather than a guessed answer.
+- Healthcare guardrails are mandatory: no diagnosis, no dosage, emergencies go to local
+  emergency services before any appointment discussion.

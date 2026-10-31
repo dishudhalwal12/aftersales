@@ -1,45 +1,98 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../server/db.ts";
-import { buildCallVariables, sarvamStatus } from "../../../../server/voice/sarvam.ts";
+import { sarvamStatus } from "../../../../server/voice/sarvam.ts";
+import {
+  authorizeVoiceContext,
+  composeVoiceContext,
+  loadVoiceAgentContext,
+  parseTrustedIdentifiers,
+  resolveCallBusiness,
+  voiceCallContext,
+} from "../../../../server/voice/context.ts";
+import {
+  buildCustomizationVariables,
+  loadActiveCustomizations,
+  resolveAvailability,
+} from "../../../../server/voice/customizations.ts";
 import { HttpError, errorResponse, readJson } from "../../../../server/auth/tenant.ts";
 
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/voice/sarvam-context — the variables the voice platform injects at
- * call start. Everything here is business-scoped; the shared number is never
- * mutated, only parameterised per call (PRD §1.3, Phase 1 spike).
+ * POST /api/voice/sarvam-context — the on-start payload the Sarvam agent pulls
+ * before its first turn.
+ *
+ * Two trusted paths, never a caller-supplied business id:
+ *   1. `agentId` and/or `virtualNumber` — resolved through the owner-saved
+ *      mapping; ambiguous, unmapped and inactive states are explicit errors.
+ *   2. `sessionId` / `demoPin` — the existing demo binding for the single
+ *      shared number.
+ *
+ * When SARVAM_CONTEXT_TOKEN (or SARVAM_WEBHOOK_TOKEN as fallback) is set, the
+ * request must carry it in `x-saram-token`, `x-sarvam-token`,
+ * `x-sarvam-context-token`, or `Authorization: Bearer`.
  */
 export async function POST(request: Request) {
   try {
-    const body = await readJson(request);
-    const sessionId = typeof body["sessionId"] === "string" ? body["sessionId"] : "";
-    const demoPin = typeof body["demoPin"] === "string" ? body["demoPin"] : "";
-    if (sessionId.length === 0 && demoPin.length === 0) {
-      throw new HttpError(400, "sessionId or demoPin is required");
+    const auth = authorizeVoiceContext(request.headers);
+    if (auth.configured && !auth.authorized) {
+      throw new HttpError(401, "missing or invalid voice context token");
     }
 
-    const session = await prisma.voiceTestSession.findFirst({
-      where: {
-        ...(sessionId.length > 0 ? { id: sessionId } : {}),
-        ...(demoPin.length > 0 ? { demoPin } : {}),
-      },
-      orderBy: { createdAt: "desc" },
-      include: { business: true },
-    });
+    const body = await readJson(request);
+    const { agentId, virtualNumber } = parseTrustedIdentifiers(body);
+    const sessionId = typeof body["sessionId"] === "string" ? body["sessionId"].trim() : "";
+    const demoPin = typeof body["demoPin"] === "string" ? body["demoPin"].trim() : "";
 
-    if (!session) throw new HttpError(404, "voice session not found");
+    const resolution = await resolveCallBusiness({ agentId, virtualNumber, sessionId, demoPin });
+    const business = await prisma.business.findUnique({ where: { id: resolution.businessId } });
+    if (!business) throw new HttpError(404, "business not found");
 
     const status = sarvamStatus();
+    const warnings: string[] = [];
+    if (!auth.configured) {
+      warnings.push("SARVAM_CONTEXT_TOKEN is not set — this endpoint is running without shared-secret auth.");
+    }
+
+    const contextRow = await loadVoiceAgentContext(business.id);
+    const active = await loadActiveCustomizations(business.id);
+    const customizationVariables = buildCustomizationVariables(active);
+    const availability =
+      active.availability === null ? null : resolveAvailability(active.availability);
+
+    if (active.appointmentBooking === null) {
+      warnings.push(
+        "Appointment booking is disabled or unconfigured — the agent may only take callback requests.",
+      );
+    }
+
     return NextResponse.json({
-      sessionId: session.id,
-      businessId: session.businessId,
-      demoPin: session.demoPin,
-      expiresAt: session.expiresAt.toISOString(),
+      // Kept for the existing session contract; null for identifier calls.
+      sessionId: resolution.session?.id ?? null,
+      demoPin: resolution.session?.demoPin ?? null,
+      expiresAt: resolution.session?.expiresAt.toISOString() ?? null,
+      businessId: business.id,
+      resolvedBy: resolution.resolvedBy,
       callMode: status.configured ? "live" : "dry_run",
       virtualNumber: status.virtualNumber,
-      variables: buildCallVariables(session.business),
+      variables: voiceCallContext(business, contextRow, customizationVariables),
+      context: composeVoiceContext(business, contextRow),
+      customizations: {
+        availability,
+        timezone: active.availability?.timezone ?? null,
+        appointmentBooking: active.appointmentBooking,
+        cancellationPolicy: active.cancellationPolicy,
+        reschedulingPolicy: active.reschedulingPolicy,
+        callbackRequests: active.callbackRequests,
+        urgentCallHandling: active.urgentCallHandling,
+        businessInstructions: active.businessInstructions,
+        appointmentMode: "request_only",
+        bookingBackend: "none",
+        dateSpecificOverridesRecurring: true,
+      },
       language: "hi-IN/en-IN code-mixed (Hinglish)",
+      contextAuth: auth.mode,
+      warnings,
     });
   } catch (error) {
     return errorResponse(error);
