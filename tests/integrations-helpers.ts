@@ -38,6 +38,8 @@ export function channel(
     status: "CONNECTED",
     autoSend: true,
     configJson: config === null ? null : JSON.stringify(config),
+    externalAccountId: null,
+    tokenExpiresAt: null,
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
