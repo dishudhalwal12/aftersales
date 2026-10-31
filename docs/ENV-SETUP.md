@@ -261,7 +261,8 @@ Leave a key empty until you really have the credential; a wrong value is worse t
 | `META_APP_ID`, `META_APP_SECRET` | <https://developers.facebook.com> → your app → **Settings → Basic**. Needs App Review for the messaging scopes. |
 | `META_WEBHOOK_VERIFY_TOKEN` | any random string **you** invent; paste the same one into Meta's webhook screen. |
 | `SARVAM_API_KEY`, `SARVAM_AGENT_ID`, `SARVAM_CALL_ENDPOINT`, `SARVAM_VIRTUAL_NUMBER` | your Sarvam account. Without them the voice panel is an explicit **dry run**. |
-| `BAILEYS_SERVICE_URL`, `BAILEYS_SERVICE_SECRET` | `baileys-service/` in this repo — see `baileys-service/README.md`. Needs a running bridge and a tunnel. |
+| `BAILEYS_SERVICE_URL`, `BAILEYS_SERVICE_SECRET` | `baileys-service/` in this repo — see `baileys-service/README.md`. Local values are written for you by `npm run setup`; a deployment needs a running bridge and a tunnel. |
+| `LAYA_SERVICE_URL`, `LAYA_SERVICE_SECRET` | `laya-service/` in this repo (Apple silicon). Local values are written for you by `npm run setup`; `npm run dev` starts it with matching values. |
 | `INTEGRATIONS_BASE_URL` | the public origin of the deployment, e.g. `https://your-app.vercel.app`. Empty locally. |
 | `AUTH_BASE_URL` | only for a non-Vercel deployment; Vercel's domain is detected automatically. |
 

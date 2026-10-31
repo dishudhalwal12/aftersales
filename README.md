@@ -40,15 +40,41 @@ by the live API, not by a prompt instruction.
 ## Run it
 
 ```bash
-npm install
+npm install          # app deps + both local services (best effort; never blocks the install)
 npm run db:setup     # prisma db push + seed two businesses + 18 tickets
-npm run dev          # http://localhost:3000
+npm run dev          # app + Laya decision service + WhatsApp bridge
 ```
+
+`npm run dev` starts all three in one terminal and prefixes their logs:
+
+```text
+AfterSales AI — dev stack
+  web      http://localhost:3000
+  laya     http://127.0.0.1:8100    typed decisions (advisory)
+  baileys  http://127.0.0.1:3001    WhatsApp bridge
+```
+
+- It generates one shared secret per pair and hands it to both sides, so nothing has to be copied
+  between `.env` files. Values already in `.env` win, and a non-local `LAYA_SERVICE_URL` or
+  `BAILEYS_SERVICE_URL` is left alone (the app then talks to your deployed service instead).
+- A busy port is not a failure: the app moves to the next free one and each service is re-pointed,
+  including the bridge's callback URL. A service that is not installed, not supported here (Laya
+  needs Apple silicon) or explicitly skipped says why and is left out — the app still runs.
+- `Ctrl-C` stops all three.
+
+`npm run setup` repeats the dependency and `.env` step on demand; it is idempotent and never
+overwrites a value you set. `npm run setup -- --deps` does only the two services, `-- --env-only`
+only the files.
 
 Or the shortcuts:
 
 ```bash
-npm test             # 265 tests, native runner, no test dependencies
+npm run dev:web      # Next.js alone, as the verify scripts expect
+npm run dev:services # only Laya + Baileys, against an app you started yourself
+npm run dev -- --no-laya        # skip one service
+npm run dev -- --no-baileys
+
+npm test             # 305 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build (see "Known limits" for the Windows prerender issue)
 npm run env:check    # which keys are set / missing (never prints values)
@@ -113,6 +139,7 @@ production build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on
 | Gmail connect / send / receive | **REAL, NOT LIVE-TESTED** | OAuth URL, token refresh, RFC 5322 MIME, thread headers, polling and duplicate suppression in `src/server/integrations/email.ts`, covered by unit tests with a fake `fetch`; no Google credentials existed in this environment |
 | Meta Page / Instagram connect | **REAL, NOT LIVE-TESTED** | Facebook Login, short→long-lived Page token exchange, one-asset selection, encrypted storage, sends via `/{page-id}/messages`; signing and webhook HMAC tested; no Meta app existed in this environment |
 | WhatsApp via local Baileys | **REAL, NOT LIVE-TESTED** | Backend client, QR/status polling, signed inbound and status webhooks; `baileys-service` has its own suite; needs the service, a tunnel and a phone |
+| Typed decision sheet via local Laya | **REAL, RUN LOCALLY** | `laya-service` (MLX, Apple silicon) answers 8 typed questions per message; the sheet is stored on the ticket and rendered next to the classifier's numbers; **advisory** — R1–R7 never reads it |
 | Credential storage | **REAL** | AES-256-GCM vault over `ChannelConnection.configJson`, HMAC-signed OAuth state (10 min, tenant-bound); tamper/expiry/wrong-secret tests |
 | Webhook authenticity | **REAL** | Meta `X-Hub-Signature-256` HMAC, Baileys shared secret, cron bearer secret — all rejected paths tested |
 | Provider transports in this deployment | **NOT CONNECTED** | The inbound webhook contract is real and idempotent; no live Baileys/Meta/Google session runs in this deployment |
@@ -139,6 +166,13 @@ logins (only the owner logs in).
                                   │        escalate          draft held         auto-reply
                                   ▼            │                 │                  │
                           tickets + append-only events ◀──────────┴──────────────────┘
+                                  │
+                                  │  (advisory, stored on the ticket — never read by R1–R7)
+                                  │        ┌──────────────────────────────────┐
+                                  │        │ laya-service :8100 (MLX, local) │
+                                  │        │ urgent? · intent · frustration  │
+                                  │        │ human asked? · sensitive? · …   │
+                                  └───────▶└──────────────────────────────────┘
                                   │
                                   ▼
                         4-panel dashboard (+ insights)
@@ -217,6 +251,7 @@ Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an emp
 | `META_APP_ID` + `META_APP_SECRET` | the Meta cards report themselves unconfigured |
 | `META_WEBHOOK_VERIFY_TOKEN` | Meta's GET handshake fails closed |
 | `BAILEYS_SERVICE_URL` + `BAILEYS_SERVICE_SECRET` | the WhatsApp card is unavailable; its callbacks stay `503` |
+| `LAYA_SERVICE_URL` + `LAYA_SERVICE_SECRET` | no ticket carries a decision sheet; the drawer says the service is not configured |
 
 `CHANNEL_WEBHOOK_SECRET` is a **platform** credential, not a tenant credential: a provider delivery
 names its business, so one valid token can write to every tenant. Treat it like the database password
@@ -271,6 +306,28 @@ renders status fields (mailbox address, Page name, or the transient pairing QR).
    the QR is pairing material, is never persisted by this app, and disappears once connected.
 4. Baileys session files live in the service's gitignored `sessions/` folder. They never enter this
    app, the browser, or source control. Disconnect logs the phone out and drops the pairing.
+
+### Typed decisions (Laya, advisory)
+
+`laya-service/` runs Laya (`aac6fef/laya-typed-decisions-mlx`) on Apple silicon through MLX and asks
+eight fixed questions about each inbound message: needs attention within the hour, a three-level
+urgency, intent, a four-level frustration, whether a human was asked for, whether it is a sensitive
+case, whether money was asked back, and churn risk.
+
+1. Start it: `cd laya-service && uv sync --extra dev && uv run python -m laya_service` (its README
+   covers install, the tunnel and the full HTTP contract). From the repository root, `npm run setup`
+   installs it and `npm run dev` starts it — and the WhatsApp bridge — alongside the app, with the
+   shared secrets generated for you.
+2. In this app set `LAYA_SERVICE_URL` and `LAYA_SERVICE_SECRET` to the values in the service's `.env`.
+3. New tickets get a decision sheet on the triage path (computed in parallel with the classifier) and
+   the drawer shows it beside the classifier's numbers. In this environment it took 0.4–1.0 s per
+   message; against a real OpenRouter call that is hidden, against the labelled offline classifier it
+   is the slowest step of triage.
+
+It is **advisory and stored**: the sheet is a column on the ticket plus a `DECISION_SHEET_COMPUTED`
+(or `…_UNAVAILABLE`, with the reason) event, and R1–R7 keeps reading the classifier alone. A broken
+or sleeping model costs a ticket its sheet, never its routing. The model card's own caveat is shown
+rather than hidden: its confidence is uncalibrated, so the panel prints the number.
 
 ### What is not verified here
 
