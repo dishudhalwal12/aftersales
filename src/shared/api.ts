@@ -14,7 +14,7 @@ export const OAUTH_CALLBACK_MESSAGE_TYPE = "aftersales:oauth-callback";
 
 export interface OAuthCallbackMessage {
   type: typeof OAUTH_CALLBACK_MESSAGE_TYPE;
-  integration: "email" | "meta";
+  integration: "email" | "meta" | "instagram";
   status: string;
   businessId: string | null;
   error: string | null;
@@ -245,6 +245,26 @@ export interface MetaStatusResponse {
   pendingExpiresAt: string | null;
   facebook: MetaChannelSummary;
   instagram: MetaChannelSummary;
+  encryptionConfigured: boolean;
+  oauthStateConfigured: boolean;
+}
+
+export interface InstagramChannelSummary {
+  connected: boolean;
+  status: "connected" | "expired" | "error" | "disconnected";
+  accountId: string | null;
+  username: string | null;
+  name: string | null;
+  connectedAt: string | null;
+  tokenExpiresAt: string | null;
+  lastError: string | null;
+}
+
+export interface InstagramStatusResponse {
+  configured: boolean;
+  businessId: string;
+  webhookConfigured: boolean;
+  instagram: InstagramChannelSummary;
   encryptionConfigured: boolean;
   oauthStateConfigured: boolean;
 }

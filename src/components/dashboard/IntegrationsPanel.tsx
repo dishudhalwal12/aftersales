@@ -5,10 +5,7 @@ import { ApiError, apiFetch } from "./client.ts";
 import {
   OAUTH_CALLBACK_MESSAGE_TYPE,
   type EmailStatusResponse,
-  type MetaAsset,
-  type MetaAssetsResponse,
-  type MetaChannelSummary,
-  type MetaStatusResponse,
+  type InstagramStatusResponse,
   type OAuthCallbackMessage,
   type WhatsappConnectionResponse,
 } from "../../shared/api.ts";
@@ -16,7 +13,7 @@ import {
 const POLL_INTERVAL_MS = 2500;
 const POLL_DEADLINE_MS = 5 * 60_000;
 
-type PendingAuth = "gmail" | "meta" | "whatsapp";
+type PendingAuth = "gmail" | "instagram" | "whatsapp";
 type Badge = { className: string; label: string };
 
 function describeError(caught: unknown): string {
@@ -45,7 +42,12 @@ function readOAuthCallbackMessage(value: unknown): OAuthCallbackMessage | null {
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
   if (record["type"] !== OAUTH_CALLBACK_MESSAGE_TYPE) return null;
-  if (record["integration"] !== "email" && record["integration"] !== "meta") return null;
+  if (
+    record["integration"] !== "email" &&
+    record["integration"] !== "instagram"
+  ) {
+    return null;
+  }
   if (typeof record["status"] !== "string") return null;
 
   return {
@@ -69,14 +71,12 @@ function emailBadge(email: EmailStatusResponse | null): Badge {
   return { className: "badge-draft", label: "not connected" };
 }
 
-function metaBadge(
-  meta: MetaStatusResponse | null,
-  summary: MetaChannelSummary | undefined,
-): Badge {
-  if (!meta) return { className: "badge-neutral", label: "checking" };
-  if (summary?.connected) return { className: "badge-sent", label: "connected" };
-  if (summary?.status === "error") return { className: "badge-esc", label: "needs attention" };
-  if (!meta.configured || !meta.encryptionConfigured || !meta.oauthStateConfigured) {
+function instagramBadge(status: InstagramStatusResponse | null): Badge {
+  if (!status) return { className: "badge-neutral", label: "checking" };
+  if (status.instagram.connected) return { className: "badge-sent", label: "connected" };
+  if (status.instagram.status === "expired") return { className: "badge-esc", label: "reconnect" };
+  if (status.instagram.status === "error") return { className: "badge-esc", label: "needs attention" };
+  if (!status.configured || !status.encryptionConfigured || !status.oauthStateConfigured) {
     return { className: "badge-neutral", label: "unavailable" };
   }
   return { className: "badge-neutral", label: "not connected" };
@@ -103,8 +103,7 @@ export function IntegrationsPanel({
   baileysConfigured: boolean;
 }) {
   const [email, setEmail] = useState<EmailStatusResponse | null>(null);
-  const [meta, setMeta] = useState<MetaStatusResponse | null>(null);
-  const [assets, setAssets] = useState<MetaAsset[] | null>(null);
+  const [instagram, setInstagram] = useState<InstagramStatusResponse | null>(null);
   const [whatsapp, setWhatsapp] = useState<WhatsappConnectionResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<PendingAuth | null>(null);
@@ -116,8 +115,11 @@ export function IntegrationsPanel({
     [businessId],
   );
 
-  const fetchMeta = useCallback(
-    () => apiFetch<MetaStatusResponse>(`/api/social/meta/status?businessId=${encodeURIComponent(businessId)}`),
+  const fetchInstagram = useCallback(
+    () =>
+      apiFetch<InstagramStatusResponse>(
+        `/api/social/instagram/status?businessId=${encodeURIComponent(businessId)}`,
+      ),
     [businessId],
   );
 
@@ -133,27 +135,12 @@ export function IntegrationsPanel({
     }
   }, [businessId]);
 
-  const fetchAssets = useCallback(
-    () => apiFetch<MetaAssetsResponse>(`/api/social/meta/assets?businessId=${encodeURIComponent(businessId)}`),
-    [businessId],
-  );
-
-  const loadAssets = useCallback(async () => {
-    try {
-      const result = await fetchAssets();
-      setAssets(result.assets);
-    } catch (caught) {
-      setAssets([]);
-      setError(describeError(caught));
-    }
-  }, [fetchAssets]);
-
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [emailResult, metaResult, whatsappResult] = await Promise.allSettled([
+      const [emailResult, instagramResult, whatsappResult] = await Promise.allSettled([
         fetchEmail(),
-        fetchMeta(),
+        fetchInstagram(),
         fetchWhatsapp(),
       ]);
       if (cancelled) return;
@@ -161,12 +148,8 @@ export function IntegrationsPanel({
       if (emailResult.status === "fulfilled") setEmail(emailResult.value);
       else setError(describeError(emailResult.reason));
 
-      if (metaResult.status === "fulfilled") {
-        setMeta(metaResult.value);
-        if (metaResult.value.pendingSelection) void loadAssets();
-      } else {
-        setError(describeError(metaResult.reason));
-      }
+      if (instagramResult.status === "fulfilled") setInstagram(instagramResult.value);
+      else setError(describeError(instagramResult.reason));
 
       if (whatsappResult.status === "fulfilled") setWhatsapp(whatsappResult.value);
       else setError(describeError(whatsappResult.reason));
@@ -174,7 +157,7 @@ export function IntegrationsPanel({
     return () => {
       cancelled = true;
     };
-  }, [fetchEmail, fetchMeta, fetchWhatsapp, loadAssets]);
+  }, [fetchEmail, fetchInstagram, fetchWhatsapp]);
 
   // The OAuth popup posts its outcome here as soon as the backend callback
   // finishes, so an error stops the wait immediately instead of after the
@@ -205,28 +188,34 @@ export function IntegrationsPanel({
         return;
       }
 
-      void (async () => {
-        try {
-          const next = await fetchMeta();
-          setMeta(next);
-          if (next.pendingSelection) {
-            setError(null);
-            setNote("Meta authorization received — choose the Page or Instagram account to connect.");
-            await loadAssets();
-          } else if (message.status === "error") {
-            setError(message.message ?? "Meta connection failed. Start the connection again to retry.");
-          } else {
-            setNote("Meta channel connected.");
+      if (message.integration === "instagram") {
+        void (async () => {
+          try {
+            const next = await fetchInstagram();
+            setInstagram(next);
+            if (message.status === "error") {
+              setError(
+                message.message ?? "Instagram connection failed. Start the connection again to retry.",
+              );
+            } else {
+              setError(null);
+              setNote(
+                next.instagram.username
+                  ? `Instagram connected as @${next.instagram.username}.`
+                  : "Instagram connected.",
+              );
+            }
+          } catch (caught) {
+            setError(describeError(caught));
           }
-        } catch (caught) {
-          setError(describeError(caught));
-        }
-      })();
+        })();
+        return;
+      }
     }
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [businessId, fetchEmail, fetchMeta, loadAssets]);
+  }, [businessId, fetchEmail, fetchInstagram]);
 
   useEffect(() => {
     if (waiting === null) return;
@@ -255,20 +244,25 @@ export function IntegrationsPanel({
             );
             return;
           }
-        } else if (waiting === "meta") {
-          const next = await fetchMeta();
+        } else if (waiting === "instagram") {
+          const next = await fetchInstagram();
           if (cancelled) return;
-          setMeta(next);
-          if (next.pendingSelection) {
+          setInstagram(next);
+          if (next.instagram.connected) {
             setWaiting(null);
-            setError(null);
-            setNote("Meta authorization received — choose the Page or Instagram account to connect.");
-            await loadAssets();
+            setNote(
+              next.instagram.username
+                ? `Instagram connected as @${next.instagram.username}.`
+                : "Instagram connected.",
+            );
             return;
           }
-          if (next.facebook.connected || next.instagram.connected) {
+          if (next.instagram.status === "error") {
             setWaiting(null);
-            setNote("Meta channel connected.");
+            setError(
+              next.instagram.lastError ??
+                "Instagram connection failed. Start the connection again to retry.",
+            );
             return;
           }
         } else {
@@ -309,7 +303,7 @@ export function IntegrationsPanel({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [waiting, fetchEmail, fetchMeta, fetchWhatsapp, loadAssets]);
+  }, [waiting, fetchEmail, fetchInstagram, fetchWhatsapp]);
 
   async function run(key: string, action: () => Promise<void>) {
     setBusy(key);
@@ -349,39 +343,25 @@ export function IntegrationsPanel({
     });
   }
 
-  function connectMeta() {
-    void run("meta-connect", async () => {
-      const url = `/api/social/meta/connect?businessId=${encodeURIComponent(businessId)}`;
+  function connectInstagram() {
+    void run("instagram-connect", async () => {
+      const url = `/api/social/instagram/connect?businessId=${encodeURIComponent(businessId)}`;
       if (openAuthWindow(url)) {
-        setWaiting("meta");
-        setNote("Finish the Facebook login in the new tab; this card updates on its own.");
+        setWaiting("instagram");
+        setNote("Finish the Instagram login in the new tab; this card updates on its own.");
       }
     });
   }
 
-  function disconnectMeta(channel: "facebook" | "instagram") {
-    void run(`meta-disconnect-${channel}`, async () => {
-      await apiFetch("/api/social/meta/disconnect", {
+  function disconnectInstagramChannel() {
+    void run("instagram-disconnect", async () => {
+      await apiFetch("/api/social/instagram/disconnect", {
         method: "POST",
-        body: JSON.stringify({ businessId, channel }),
+        body: JSON.stringify({ businessId }),
       });
-      setMeta(await fetchMeta());
+      setInstagram(await fetchInstagram());
       setWaiting(null);
-      setNote(`${channel === "facebook" ? "Facebook Page" : "Instagram account"} disconnected.`);
-    });
-  }
-
-  function chooseAsset(asset: MetaAsset) {
-    void run(`asset-${asset.id}`, async () => {
-      const result = await apiFetch<{ provider: string }>("/api/social/meta/select-asset", {
-        method: "POST",
-        body: JSON.stringify({ businessId, kind: asset.kind, assetId: asset.id }),
-      });
-      setMeta(await fetchMeta());
-      setAssets(null);
-      setNote(
-        `${asset.kind === "page" ? "Facebook Page" : "Instagram account"} "${asset.name}" connected as ${result.provider}.`,
-      );
+      setNote("Instagram disconnected and its stored token was removed.");
     });
   }
 
@@ -412,22 +392,14 @@ export function IntegrationsPanel({
   }
 
   const emailState = emailBadge(email);
-  const facebookState = metaBadge(meta, meta?.facebook);
-  const instagramState = metaBadge(meta, meta?.instagram);
+  const instagramState = instagramBadge(instagram);
   const whatsappState = whatsappBadge(baileysConfigured, whatsapp);
-  const metaCardState: Badge = meta?.pendingSelection
-    ? { className: "badge-draft", label: "choose an account" }
-    : facebookState.label === "connected" || instagramState.label === "connected"
-      ? { className: "badge-sent", label: "connected" }
-      : facebookState.label === "needs attention" || instagramState.label === "needs attention"
-        ? { className: "badge-esc", label: "needs attention" }
-        : facebookState.label === "unavailable" || instagramState.label === "unavailable"
-          ? { className: "badge-neutral", label: "unavailable" }
-          : { className: "badge-neutral", label: "not connected" };
+  const instagramReady = Boolean(
+    instagram?.configured && instagram.encryptionConfigured && instagram.oauthStateConfigured,
+  );
   const emailReady = Boolean(
     email?.configured && email.encryptionConfigured && email.oauthStateConfigured,
   );
-  const metaReady = Boolean(meta?.configured && meta.encryptionConfigured && meta.oauthStateConfigured);
 
   return (
     <div className="glass panel" style={{ marginTop: 16 }}>
@@ -564,129 +536,73 @@ export function IntegrationsPanel({
           </div>
         </div>
 
-        <div className="glass channel-card" style={{ background: "#fff", gridColumn: "1 / -1" }}>
+        {/* Facebook Page – removed. Integration coming in a future release. */}
+        <div className="glass channel-card" style={{ background: "#fff", opacity: 0.55 }}>
           <div className="channel-title">
-            <b style={{ fontSize: 14 }}>Facebook Page &amp; Instagram DM</b>
-            <span className={`badge ${metaCardState.className}`}>{metaCardState.label}</span>
+            <b style={{ fontSize: 14 }}>Facebook Page</b>
+            <span className="badge badge-neutral">coming soon</span>
           </div>
           <p className="tiny muted">
-            {!meta?.configured
-              ? "META_APP_ID / META_APP_SECRET are not set on this deployment."
-              : !meta.encryptionConfigured || !meta.oauthStateConfigured
-                ? "Set INTEGRATION_ENCRYPTION_KEY and INTEGRATION_STATE_SECRET to enable connections."
-                : "Facebook Login authorizes the owner; one Page or linked Instagram professional account is then connected per authorization."}
+            Facebook Page Messenger integration is coming soon. Stay tuned for updates.
           </p>
-
-          <div className="grid-2">
-            {(
-              [
-                {
-                  key: "facebook",
-                  label: "Facebook Page",
-                  summary: meta?.facebook,
-                  state: facebookState,
-                },
-                {
-                  key: "instagram",
-                  label: "Instagram DM",
-                  summary: meta?.instagram,
-                  state: instagramState,
-                },
-              ] as const
-            ).map((entry) => (
-              <div className="glass panel-tight" key={entry.key} style={{ background: "#fff" }}>
-                <div className="row-between">
-                  <b style={{ fontSize: 13 }}>{entry.label}</b>
-                  <span className={`badge ${entry.state.className}`}>{entry.state.label}</span>
-                </div>
-                <p className="tiny muted" style={{ marginTop: 4 }}>
-                  {entry.summary?.connected
-                    ? `${entry.summary.pageName ?? "Page"}${
-                        entry.summary.kind === "instagram" && entry.summary.igUsername
-                          ? ` · @${entry.summary.igUsername}`
-                          : ""
-                      } · connected ${formatWhen(entry.summary.connectedAt)}`
-                    : entry.summary?.lastError
-                      ? entry.summary.lastError
-                      : "Not connected."}
-                </p>
-                {entry.summary?.connected && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={busy !== null}
-                    onClick={() => disconnectMeta(entry.key)}
-                  >
-                    {busy === `meta-disconnect-${entry.key}` ? "Disconnecting…" : "Disconnect"}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {meta?.pendingSelection && (
-            <div className="stack" style={{ marginTop: 6 }}>
-              <p className="eyebrow">Choose what to connect</p>
-              {assets === null ? (
-                <p className="tiny muted">Loading the accounts from this authorization…</p>
-              ) : assets.length === 0 ? (
-                <p className="tiny muted">
-                  No Pages or Instagram accounts came back from this authorization. Start the Meta
-                  connection again and grant access to at least one Page.
-                </p>
-              ) : (
-                assets.map((asset) => (
-                  <div
-                    className="glass panel-tight"
-                    key={`${asset.kind}-${asset.id}`}
-                    style={{ background: "#fff" }}
-                  >
-                    <div className="row-between">
-                      <div>
-                        <b style={{ fontSize: 13 }}>
-                          {asset.kind === "page" ? "Page" : "Instagram"}: {asset.name}
-                          {asset.username ? ` (@${asset.username})` : ""}
-                        </b>
-                        {asset.kind === "instagram" && (
-                          <p className="tiny muted">Linked to Page “{asset.pageName}”</p>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        disabled={busy !== null}
-                        onClick={() => chooseAsset(asset)}
-                      >
-                        {busy === `asset-${asset.id}` ? "Connecting…" : "Connect"}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-              <p className="tiny muted">
-                The authorization is single use. To link both a Page and an Instagram account, run
-                Connect again after the first one is stored.
-              </p>
-            </div>
-          )}
-
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            {metaReady && !meta?.pendingSelection && (
+            <span className="badge badge-neutral">Page Messenger</span>
+          </div>
+        </div>
+
+        <div className="glass channel-card" style={{ background: "#fff" }}>
+          <div className="channel-title">
+            <b style={{ fontSize: 14 }}>Instagram DM &amp; comments</b>
+            <span className={`badge ${instagramState.className}`}>{instagramState.label}</span>
+          </div>
+          <p className="tiny muted">
+            {!instagram?.configured
+              ? "INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET are not set on this deployment."
+              : !instagram.encryptionConfigured || !instagram.oauthStateConfigured
+                ? "Set INTEGRATION_ENCRYPTION_KEY and INTEGRATION_STATE_SECRET to enable connections."
+                : "Instagram Login authorizes the professional account directly; the 60-day token is stored encrypted and subscribed to messages and comments."}
+          </p>
+          <div className="glass panel-tight" style={{ background: "#fff" }}>
+            <div className="row-between">
+              <b style={{ fontSize: 13 }}>Professional account</b>
+              <span className={`badge ${instagramState.className}`}>{instagramState.label}</span>
+            </div>
+            <p className="tiny muted" style={{ marginTop: 4 }}>
+              {instagram?.instagram.connected
+                ? `@${instagram.instagram.username ?? instagram.instagram.accountId ?? "account"} · token valid until ${formatWhen(instagram.instagram.tokenExpiresAt)}`
+                : instagram?.instagram.lastError ?? "Not connected."}
+            </p>
+            {instagram?.instagram.connected && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={busy !== null}
+                onClick={disconnectInstagramChannel}
+              >
+                {busy === "instagram-disconnect" ? "Disconnecting…" : "Disconnect"}
+              </button>
+            )}
+          </div>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {instagramReady && !instagram?.instagram.connected && (
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
                 disabled={busy !== null}
-                onClick={connectMeta}
+                onClick={connectInstagram}
               >
-                {busy === "meta-connect"
-                  ? "Opening Facebook…"
-                  : meta?.facebook.connected || meta?.instagram.connected
-                    ? "Connect another account"
-                    : "Connect with Facebook"}
+                {busy === "instagram-connect" ? "Opening Instagram…" : "Connect Instagram"}
               </button>
             )}
-            {waiting === "meta" && <span className="badge badge-draft">waiting for Facebook</span>}
-            <span className="badge badge-neutral">Pages Messaging + Instagram Messaging</span>
+            {instagramReady &&
+              !instagram?.instagram.connected &&
+              instagram?.instagram.status === "expired" && (
+                <span className="badge badge-esc">token expired</span>
+              )}
+            {waiting === "instagram" && (
+              <span className="badge badge-draft">waiting for Instagram</span>
+            )}
+            <span className="badge badge-neutral">Instagram Login · messages + comments</span>
           </div>
         </div>
       </div>

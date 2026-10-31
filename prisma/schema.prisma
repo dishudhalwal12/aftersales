@@ -125,9 +125,15 @@ model ChannelConnection {
   status      String
   autoSend    Boolean  @default(false)
   configJson  String?
+  // Provider-side account id (e.g. the Instagram professional account) so an
+  // inbound webhook resolves its tenant with one indexed lookup.
+  externalAccountId String?
+  // When the stored credential stops working. Instagram Login tokens last 60 days.
+  tokenExpiresAt    DateTime?
   updatedAt   DateTime @updatedAt
 
   @@unique([businessId, channelType])
+  @@index([channelType, externalAccountId])
 }
 
 model Ticket {

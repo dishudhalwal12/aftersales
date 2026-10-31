@@ -4,7 +4,7 @@
 import { OAUTH_CALLBACK_MESSAGE_TYPE } from "../../shared/api.ts";
 
 export type OAuthCallbackPayload = {
-  integration: "email" | "meta";
+  integration: "email" | "meta" | "instagram";
   status: string;
   businessId?: string;
   error?: string;
@@ -20,6 +20,7 @@ export { OAUTH_CALLBACK_MESSAGE_TYPE } from "../../shared/api.ts";
 const INTEGRATION_LABELS: Record<OAuthCallbackPayload["integration"], string> = {
   email: "Gmail",
   meta: "Meta",
+  instagram: "Instagram",
 };
 
 const DASHBOARD_PATH = "/dashboard";

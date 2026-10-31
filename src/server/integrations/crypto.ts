@@ -21,7 +21,7 @@ const TAG_BYTES = 16;
 const KEY_BYTES = 32;
 export const OAUTH_STATE_TTL_SECONDS = 600;
 
-const OAUTH_PROVIDERS = ["gmail", "meta"] as const;
+const OAUTH_PROVIDERS = ["gmail", "meta", "instagram"] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
 function readEncryptionKey(): Buffer {
