@@ -24,17 +24,32 @@ prisma/*.db-journal
 .env.*
 !.env.example
 
-# ─── Tooling, editors, OS noise ────────────────────────────────────────────
+# ─── Agent and editor tooling ─────────────────────────────────────────────
+# These are local workflow files, not part of the product.
+AGENTS.md
+.pi/
+.claude/
+.superpowers/
 .thinkrail/
-.pi/git/
 .DS_Store
 Thumbs.db
 .idea/
 *.swp
 *.log
 
-# ─── Reference material (downloaded, never shipped) ────────────────────────
+# ─── Python caches (Laya has its own .gitignore; this covers the root) ─────
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# ─── One-off design generators and downloaded reference material ───────────
+docs/superpowers/
+docs/design/screens/build_aftersales_ui.py
 landingpage.it/
+inspiration.webp
 .vercel
 .env.local
 .env.production.local
