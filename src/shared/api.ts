@@ -83,6 +83,53 @@ export interface RecurringComplaint {
   lastSeen: string;
 }
 
+export type SentimentTrendLabel = "improving" | "stable" | "worsening" | "baseline";
+
+export interface DailySentimentPoint {
+  /** UTC calendar day, `YYYY-MM-DD`. */
+  date: string;
+  total: number;
+  negative: number;
+  negativeShare: number;
+}
+
+export interface WeeklyComplaintView {
+  intent: string;
+  count: number;
+  negative: number;
+  negativeShare: number;
+  previousCount: number;
+  delta: number;
+  direction: "new" | "rising" | "cooling" | "steady";
+  sample: string;
+  lastSeen: string;
+}
+
+/** One persisted completed-week report, with the provenance of its automatic run. */
+export interface WeeklyReportView {
+  weekStart: string;
+  weekEnd: string;
+  windowDays: number;
+  totalTickets: number;
+  autoAnswered: number;
+  drafts: number;
+  escalated: number;
+  failed: number;
+  escalationRate: number;
+  autoAnswerRate: number;
+  sentiment: { positive: number; neutral: number; frustrated: number; distressed: number };
+  sentimentScore: number;
+  previousScore: number | null;
+  sentimentDelta: number;
+  sentimentTrend: SentimentTrendLabel;
+  dailySentiment: DailySentimentPoint[];
+  recurringComplaints: WeeklyComplaintView[];
+  topComplaint: string | null;
+  citations: number;
+  generatedAt: string;
+  trigger: "cron" | "lazy";
+}
+
 export interface InsightsResponse {
   businessId: string;
   windowDays: number;
@@ -100,6 +147,17 @@ export interface InsightsResponse {
   topRule: string | null;
   citations: number;
   recurringComplaints: RecurringComplaint[];
+  /** Rolling seven-day sentiment tracking, compared with the seven days before it. */
+  sentimentScore: number;
+  previousSentimentScore: number | null;
+  sentimentDelta: number;
+  sentimentTrend: SentimentTrendLabel;
+  negativeShare: number;
+  dailySentiment: DailySentimentPoint[];
+  /** The latest persisted completed week, or null when persistence failed. */
+  weeklyReport: WeeklyReportView | null;
+  weeklyHistory: WeeklyReportView[];
+  nextReportAt: string;
 }
 
 export interface BrainChunkView {
