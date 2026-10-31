@@ -48,7 +48,7 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # 305 tests, native runner, no test dependencies
+npm test             # 310 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build (see "Known limits" for the Windows prerender issue)
 npm run env:check    # which keys are set / missing (never prints values)
@@ -109,15 +109,15 @@ Both generation paths converge on the same row:
 A completed week is an immutable snapshot: a retried cron or a second read never duplicates the row or
 moves `generatedAt`. The report is delivered in the dashboard and over the API; **email delivery is not
 claimed** — the only mail transport here is the owner's connected Gmail. `npm run verify:weekly` boots
-the app, seeds an isolated tenant with backdated tickets, and proves both paths against real rows.
+the app, seeds an isolated tenant with backdated tickets, and proves both paths, snapshot immutability and the dashboard surface against real rows.
 
 ---
 
 ## What is real vs what is mocked
 
 **This table is the source of truth. A row may say REAL only if a test, an API call or a screenshot is
-behind it.** Last verified: **2026-10-31 — `npm test` (305 tests), `npm run typecheck`,
-`npm run verify:weekly` (41/41) and `npm run verify:phase3` (85/85, with `LLM_PROVIDER=heuristic`) on
+behind it.** Last verified: **2026-10-31 — `npm test` (310 tests), `npm run typecheck`,
+`npm run verify:weekly` (43/43) and `npm run verify:phase3` (85/85, with `LLM_PROVIDER=heuristic`) on
 Node 26.5.0. `npm run build` compiles and prerenders under `--debug-prerender`; the plain production
 build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on a stock app (see "Known
 limits").**
@@ -132,7 +132,7 @@ limits").**
 | Approve draft / resolve escalation | **REAL** | human-only exits; the agent has no `escalated → replied` path |
 | Webhook idempotency | **REAL** | unique `(businessId, externalMessageId)`; replay returns the same `ticketId` with `duplicate: true`, and the same id under another tenant is that tenant's own ticket |
 | Provider-signed inbound edge | **REAL** | `x-channel-token` matching `CHANNEL_WEBHOOK_SECRET` delivers without a browser session; an unknown `businessId` is `404` |
-| Sentiment trend + automatic weekly report | **REAL** | `weekly-report.ts` (30 tests) and `weekly-report-store.ts` (10 tests): one report per completed ISO week, persisted idempotently on `(businessId, weekStart)`, generated lazily on first view and by the secret-gated weekly cron; `npm run verify:weekly` proves both paths on real rows (41 checks) |
+| Sentiment trend + automatic weekly report | **REAL** | `weekly-report.ts` (30 engine tests), `weekly-report-store.ts` (12 store tests) and the display policy (3 tests): one report per completed ISO week, persisted idempotently on `(businessId, weekStart)` and never overwritten once written, generated lazily on first view and by the secret-gated weekly cron; `npm run verify:weekly` proves both paths on real rows (43 checks) |
 | Voice session, PIN binding, mid-call retrieval, write-back | **REAL** | `start-session` → `sarvam-tool-search` → `sarvam-webhook` |
 | LLM classifier | **CONDITIONAL** | OpenRouter when `OPENROUTER_API_KEY` is set; otherwise a labelled **offline** retrieval classifier |
 | The offline classifier | **REAL, LABELLED** | BM25 coverage score, extractive answers. The dashboard shows a persistent banner and the API returns `degraded: true` |
