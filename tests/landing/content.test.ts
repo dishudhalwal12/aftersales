@@ -65,6 +65,7 @@ const newCopy = [
   "Six kinds of businesses run on messages.",
   "Everything you need to answer customers, without adding headcount.",
   "Made for the way India talks",
+  "On a call, AfterSales speaks Hindi, English, and Hinglish. Text replies are in English.",
   "Give every customer an answer.",
   "Customer support that answers, even when you can't.",
 ];
@@ -123,7 +124,9 @@ test("only the hero video slot remains", () => {
 
 test("every local asset reference resolves on disk", () => {
   const refs = new Set(
-    [...html.matchAll(/(?:src|href)="(\/[^"]+)"/g)].map((match) => match[1]),
+    [...html.matchAll(/(?:src|href)="(\/[^"]+)"/g)]
+      .map((match) => match[1])
+      .filter((ref): ref is string => ref !== undefined),
   );
 
   for (const ref of refs) {
@@ -149,6 +152,8 @@ test("metadata describes AfterSales AI", () => {
   assert.ok(html.includes("<title>AfterSales AI | Every customer gets an answer</title>"));
   assert.ok(html.includes("AfterSales answers customer questions"));
   assert.ok(html.includes('rel="canonical" href="https://aftersales-sphinx.vercel.app/"'));
+  assert.ok(html.includes('<html lang="en-IN">'));
+  assert.equal(html.includes("user-scalable=no"), false);
 });
 
 test("visible copy has no em dash, en dash, or AI tells", () => {

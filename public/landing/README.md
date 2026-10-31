@@ -12,6 +12,10 @@ Open it over **HTTP**, not from the filesystem: the saved asset filenames keep t
 string (`bootstrap.min_ver%3D7.1.4.css`), which only resolves when the server URL-decodes the path.
 `scripts/serve-landing.mjs` does exactly that and nothing else.
 
+This preview only checks layout and copy. All demo links point to `/auth`, which the static server does
+not serve. To click through to sign-in and the dashboard, run `npm run dev` and open
+`http://localhost:3000/`.
+
 ## Layout
 
 | Path | Contents |
@@ -32,7 +36,7 @@ string (`bootstrap.min_ver%3D7.1.4.css`), which only resolves when the server UR
 | Showreel | after-hours customer story as a large quote |
 | Who it's for | six business categories, no borrowed client logos |
 | What you get | five product cards with typographic `01` to `05` image panels |
-| Languages | India-first language strip |
+| Languages | Hindi, English, and Hinglish voice strip |
 | Final CTA | `Give every customer an answer.` and a demo link |
 | Footer | tagline, section links, copyright |
 
@@ -50,11 +54,12 @@ string (`bootstrap.min_ver%3D7.1.4.css`), which only resolves when the server UR
 - **Navigation**: the four menu items now point at the page sections and `/auth`. The old social links are
   gone. The header logo, menu layout, and pinned CTA are unchanged.
 - **Metadata**: title, description, canonical URL, Open Graph tags, and JSON-LD now describe AfterSales AI.
-- **Language**: `lang="en"` and `og:locale=en_IN`. The old WPML Italian cookie script is removed.
+- **Language**: `lang="en-IN"` and `og:locale=en_IN`. The old WPML Italian cookie script is removed.
 
 ## Call to action
 
-The pinned top-right button is the only entry into the app from this page:
+The pinned top-right button is the primary entry into the app from this page. The five card buttons,
+the final CTA, the footer link, and the menu item also point at `/auth`.
 
 ```html
 <a class="as-cta" href="/auth">Go to Dashboard</a>
