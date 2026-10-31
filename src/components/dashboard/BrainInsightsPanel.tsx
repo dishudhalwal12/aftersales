@@ -9,6 +9,7 @@ import type {
   WeeklyComplaintView,
 } from "../../shared/api.ts";
 import { Metric } from "../ui/Badges.tsx";
+import { complaintDisplay } from "../../shared/insights.ts";
 
 const TREND_LABEL = {
   improving: "improving",
@@ -109,6 +110,10 @@ export function BrainInsightsPanel({ businessId }: { businessId: string }) {
     : 0;
 
   const weeklyReport = insights?.weeklyReport ?? null;
+  const complaints = complaintDisplay({
+    weekly: weeklyReport?.recurringComplaints ?? [],
+    live: insights?.recurringComplaints ?? [],
+  });
 
   return (
     <div>
@@ -315,12 +320,22 @@ export function BrainInsightsPanel({ businessId }: { businessId: string }) {
 
             <div className="row-between" style={{ marginTop: 16, marginBottom: 8 }}>
               <p className="eyebrow">Recurring complaints</p>
-              <span className="tiny muted">count · negative share · vs last week</span>
+              <span className="tiny muted">
+                {complaints.source === "weekly"
+                  ? "count · negative share · vs last week"
+                  : "live · last 7 days"}
+              </span>
             </div>
-            {weeklyReport.recurringComplaints.length === 0 && (
+            {complaints.source === "rolling" && complaints.rows.length > 0 && (
+              <p className="tiny muted" style={{ marginBottom: 6 }}>
+                Nothing repeated in the completed week yet — these repeated over the last{" "}
+                {insights.windowDays} days.
+              </p>
+            )}
+            {complaints.rows.length === 0 && (
               <p className="tiny muted">No complaint repeated in this week.</p>
             )}
-            {weeklyReport.recurringComplaints.map((complaint) => (
+            {complaints.rows.map((complaint) => (
               <div
                 className="kv"
                 key={complaint.intent}
@@ -337,12 +352,16 @@ export function BrainInsightsPanel({ businessId }: { businessId: string }) {
                     >
                       {complaint.negativeShare}% negative
                     </span>
-                    <span className={`badge ${DIRECTION_CLASS[complaint.direction]}`}>
-                      {DIRECTION_LABEL[complaint.direction]}
-                      {complaint.previousCount === 0
-                        ? ""
-                        : ` ${complaint.previousCount}→${complaint.count}`}
-                    </span>
+                    {complaint.direction !== null ? (
+                      <span className={`badge ${DIRECTION_CLASS[complaint.direction]}`}>
+                        {DIRECTION_LABEL[complaint.direction]}
+                        {complaint.previousCount === null || complaint.previousCount === 0
+                          ? ""
+                          : ` ${complaint.previousCount}→${complaint.count}`}
+                      </span>
+                    ) : (
+                      <span className="tiny muted">last {timeAgo(complaint.lastSeen)}</span>
+                    )}
                   </span>
                 </div>
                 <p className="tiny muted clamp-2">{complaint.sample}</p>
