@@ -12,10 +12,9 @@ const PROOF = [
 ] as const;
 
 /**
- * Sign-in, in the landing page's own language: paper white, ink black, the
- * design deck's petrol teal, and the display serif. `/` is our own landing page
- * (`src/app/page.tsx`); this screen is what its "Sign in" and "Get started"
- * controls open.
+ * Sign-in, in the landing page's own language: paper white, ink black, electric
+ * blue and hot pink, the display serif and the Telegraf interface face. This is
+ * what the landing page's "Go to Dashboard" control opens.
  */
 export default async function AuthPage({
   searchParams,
@@ -34,7 +33,7 @@ export default async function AuthPage({
       <section className="auth-brand">
         <div className="auth-brandtop">
           <Link href="/" className="auth-wordmark" aria-label="AfterSales AI home">
-            AfterSales<span>AI</span>
+            AfterSales<span>.</span>
           </Link>
           <span className="auth-eyebrow">SPHINX &rsquo;26 · PS 2.5</span>
         </div>

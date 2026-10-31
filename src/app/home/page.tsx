@@ -15,8 +15,8 @@ export const dynamic = "force-dynamic";
  * decision. This page — the app's own landing, built from the Team 41 deck — is
  * kept at `/home` as the alternative front door.
  *
- * Visual authority here is the deck: paper white, black ink, one petrol teal, no
- * gradient and no glass; the dashboard keeps its own skin.
+ * Visual authority here is the deck: paper white, black ink, one electric blue,
+ * no gradient and no glass — the same system the dashboard and onboarding use.
  */
 
 const STEPS = [

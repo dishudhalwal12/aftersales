@@ -13,10 +13,15 @@ export type TabKey = "queue" | "voice" | "brain" | "channels";
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "queue", label: "Live queue" },
   { key: "voice", label: "Voice test" },
-  { key: "brain", label: "Business brain & insights" },
+  { key: "brain", label: "Brain & insights" },
   { key: "channels", label: "Channels" },
 ];
 
+/**
+ * The shell keeps the landing page's frame around the product: the wordmark and a
+ * hairline top bar, an editorial page head that names the workspace, and a numbered
+ * rail whose panels are pages rather than tabs in a box.
+ */
 export function DashboardShell({
   businesses,
   activeBusiness,
@@ -56,22 +61,21 @@ export function DashboardShell({
     <>
       <header className="topbar">
         <div className="wrap topbar-inner">
-          <Link href="/" aria-label="AfterSales AI home">
-            <Logo size={26} />
+          <Link href="/" className="topbar-brand" aria-label="AfterSales AI home">
+            <Logo />
           </Link>
 
           <form
+            className="topbar-biz"
             action=""
             onSubmit={(event) => event.preventDefault()}
-            style={{ display: "flex", alignItems: "center", gap: 8 }}
           >
             <label className="sr-only" htmlFor="business-switcher">
               Active business
             </label>
             <select
               id="business-switcher"
-              className="select"
-              style={{ width: "auto", padding: "7px 10px", fontSize: 13 }}
+              className="select biz-switch"
               value={activeBusiness.businessId}
               onChange={(event) => {
                 window.location.href = `/dashboard?tab=${tab}&business=${event.target.value}`;
@@ -85,39 +89,44 @@ export function DashboardShell({
             </select>
           </form>
 
-          <span className="spread" />
+          <div className="topbar-actions">
+            <span
+              className={`topbar-state ${degraded ? "is-offline" : "is-live"}`}
+              title={providerLabel}
+            >
+              <span className="dot dot-live" aria-hidden="true" />
+              {degraded ? "offline classifier" : "model live"}
+            </span>
 
-          <span
-            className={`badge ${degraded ? "badge-draft" : "badge-sent"}`}
-            title={providerLabel}
-          >
-            {degraded ? "offline classifier" : "model live"}
-          </span>
-
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setModalOpen(true)}>
-            Test my AI agent
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={resetDemo}
-            disabled={resetPending}
-            title="Delete only the tickets this demo created"
-          >
-            {resetPending ? "Resetting…" : "Reset demo"}
-          </button>
-
-          <form action={signOutAction}>
-            <button className="btn btn-ghost btn-sm" type="submit" title={user.email}>
-              Sign out
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => setModalOpen(true)}
+            >
+              Test my AI agent
             </button>
-          </form>
+
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={resetDemo}
+              disabled={resetPending}
+              title="Delete only the tickets this demo created"
+            >
+              {resetPending ? "Resetting…" : "Reset demo"}
+            </button>
+
+            <form action={signOutAction}>
+              <button className="btn btn-ghost btn-sm" type="submit" title={user.email}>
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
       {degraded && (
-        <div className="wrap" style={{ paddingTop: 12 }}>
+        <div className="wrap" style={{ paddingTop: 14 }}>
           <p className="banner" role="status">
             <span className="dot" aria-hidden="true" style={{ marginTop: 6 }} />
             <span>
@@ -131,32 +140,58 @@ export function DashboardShell({
         </div>
       )}
 
+      <div className="wrap">
+        <section className="page-head">
+          <div>
+            <p className="eyebrow">
+              Workspace · {activeBusiness.businessType}
+            </p>
+            <h1 className="page-title">{activeBusiness.name}</h1>
+            <p className="page-lede">
+              One queue for WhatsApp, Instagram, Gmail and voice. Every reply carries the rule it was
+              routed by and the chunk it was grounded in.
+            </p>
+          </div>
+
+          <div className="page-meta">
+            <div>
+              <b>v{activeBusiness.brainVersion}</b>
+              <span>brain version</span>
+            </div>
+            <div>
+              <b>{activeBusiness.chunkCount}</b>
+              <span>cited chunks</span>
+            </div>
+            <div>
+              <b>{activeBusiness.autoSendEnabled ? "On" : "Off"}</b>
+              <span>auto-send</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
       <main className="wrap dash">
         <nav className="side" aria-label="Dashboard panels">
-          {TABS.map((entry) => (
+          <p className="side-label">Panels</p>
+
+          {TABS.map((entry, index) => (
             <Link
               key={entry.key}
               href={`/dashboard?tab=${entry.key}&business=${activeBusiness.businessId}`}
               className="side-link"
               data-active={entry.key === tab}
+              aria-current={entry.key === tab ? "page" : undefined}
             >
-              {entry.label}
+              <span className="side-index">{String(index + 1).padStart(2, "0")}</span>
+              <span>{entry.label}</span>
               {entry.key === "queue" && <span className="side-count">{queueCount}</span>}
             </Link>
           ))}
 
-          <div className="glass panel-tight" style={{ marginTop: 14, fontSize: 12 }}>
-            <p className="eyebrow" style={{ marginBottom: 6 }}>
-              Business
-            </p>
-            <p style={{ fontWeight: 620 }}>{activeBusiness.name}</p>
-            <p className="muted tiny">
-              brain v{activeBusiness.brainVersion} · {activeBusiness.chunkCount} chunks
-            </p>
-            <p className="muted tiny" style={{ marginTop: 6 }}>
-              Auto-send {activeBusiness.autoSendEnabled ? "enabled" : "disabled"}
-            </p>
-          </div>
+          <p className="rail-note">
+            Every answer is grounded in brain v{activeBusiness.brainVersion}. Below confidence 50 it
+            escalates instead of sending — with the rule and the reason attached.
+          </p>
         </nav>
 
         <section>{children}</section>

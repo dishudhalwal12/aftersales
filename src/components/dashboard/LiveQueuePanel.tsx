@@ -102,8 +102,9 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
     <div>
       <div className="panel-head">
         <div>
+          <p className="eyebrow">01 — Queue</p>
           <h2>Live queue</h2>
-          <p className="tiny muted" style={{ marginTop: 4 }}>
+          <p className="panel-lede">
             One queue for WhatsApp, Instagram, Gmail, voice and the text tester. Newest first.
           </p>
         </div>
@@ -125,6 +126,7 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
             type="button"
             className="chip"
             data-active={entry === filter}
+            aria-pressed={entry === filter}
             onClick={() => setFilter(entry)}
           >
             {entry === "all" ? "All" : entry}
@@ -178,11 +180,17 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
         </div>
 
         <div className="glass panel" style={{ minHeight: 320 }}>
-          {selected === null ? (
+          {selected === null && selectedId !== null ? (
+            <div className="stack">
+              <div className="skeleton" style={{ height: 26, width: "40%" }} />
+              <div className="skeleton" style={{ height: 86 }} />
+              <div className="skeleton" style={{ height: 64, width: "70%" }} />
+            </div>
+          ) : selected === null ? (
             <Empty title="Select a ticket" hint="The decision trail, the cited chunks and the actions live here." />
           ) : (
             <div className="fade-in">
-              <div className="row-between" style={{ alignItems: "flex-start" }}>
+              <div className="queue-detail-head">
                 <div>
                   <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                     <ChannelBadge channel={selected.channel} />
@@ -192,28 +200,26 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
                   <h3 style={{ fontSize: 18, marginTop: 8 }}>{selected.customerName}</h3>
                   <p className="tiny muted">{selected.customerHandle}</p>
                 </div>
-                <div style={{ textAlign: "right" }}>
+                <div className="queue-detail-rule">
                   <RuleBadge rule={selected.routingRuleHit} />
-                  <p className="tiny muted" style={{ marginTop: 4, maxWidth: 160 }}>
-                    {RULE_COPY[selected.routingRuleHit] ?? ""}
-                  </p>
+                  <p>{RULE_COPY[selected.routingRuleHit] ?? ""}</p>
                 </div>
               </div>
 
-              <div className="glass panel-tight" style={{ marginTop: 14, background: "#fff" }}>
-                <p className="eyebrow" style={{ marginBottom: 6 }}>
-                  Customer message
-                </p>
-                <p style={{ fontSize: 13.5 }}>{selected.customerQuery}</p>
+              <div className="quote-block">
+                <p className="eyebrow">Customer message</p>
+                <p>{selected.customerQuery}</p>
               </div>
 
-              <div className="grid-2" style={{ marginTop: 14, gap: 16 }}>
+              <div className="grid-2" style={{ marginTop: 18, gap: 20 }}>
                 <div>
-                  <p className="tiny muted">Confidence</p>
+                  <p className="eyebrow" style={{ marginBottom: 8 }}>Confidence</p>
                   <ConfidenceMeter value={selected.confidenceScore} actionStatus={selected.actionStatus} />
                 </div>
                 <div>
-                  <p className="tiny muted">Urgency · {selected.urgencyScore}/100</p>
+                  <p className="eyebrow" style={{ marginBottom: 8 }}>
+                    Urgency · {selected.urgencyScore}/100
+                  </p>
                   <div className={`meter ${selected.urgencyScore >= 80 ? "meter-esc" : "meter-draft"}`}>
                     <span style={{ width: `${Math.max(2, selected.urgencyScore)}%` }} />
                   </div>

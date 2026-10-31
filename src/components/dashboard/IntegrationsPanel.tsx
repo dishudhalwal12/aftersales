@@ -433,10 +433,9 @@ export function IntegrationsPanel({
     <div className="glass panel" style={{ marginTop: 16 }}>
       <div className="panel-head">
         <div>
-          <p className="eyebrow" style={{ marginBottom: 6 }}>
-            Connected accounts
-          </p>
-          <p className="tiny muted">
+          <p className="eyebrow">Connected accounts</p>
+          <h2>Account connections</h2>
+          <p className="panel-lede">
             OAuth and QR linking are completed by the backend. These labels only show what the
             provider confirmed — nothing is pre-marked as connected.
           </p>

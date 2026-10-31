@@ -1,18 +1,19 @@
 
 /* ==========================================================================
-   Landing — design deck slides 01/02/05: paper, ink, one petrol teal.
+   Landing — design deck slides 01/02/05: paper, ink, one electric blue.
    Six values, no gradient, no glass, shadow at 8% or under.
    ========================================================================== */
 
 .landing {
+  /* the same six values the product runs on — see app/globals.css */
   --paper: #ffffff;
-  --wash: #f4f4f1;
-  --line: #e4e4dd;
-  --ink: #0a0a0a;
-  --petrol: #0e6b5f;
-  --signal: #12a594;
-  --mint: #8fe0ce;
-  --landing-muted: #6b6b66;
+  --wash: #f6f6f4;
+  --line: rgba(0, 0, 0, 0.12);
+  --ink: #000000;
+  --petrol: #1811ff;
+  --signal: #ff2974;
+  --mint: #c9c7ff;
+  --landing-muted: #6f6f6f;
 
   min-height: 100dvh;
   display: flex;
@@ -157,7 +158,7 @@
   border-radius: 18px;
   background: var(--petrol);
   overflow: hidden;
-  box-shadow: 0 18px 44px rgba(10, 10, 10, 0.08);
+  box-shadow: 0 18px 44px rgba(24, 17, 255, 0.12);
 }
 
 .landing-arcs {
@@ -167,7 +168,7 @@
 .landing-arcs span {
   position: absolute;
   border-radius: 50%;
-  border: 26px solid rgba(143, 224, 206, 0.16);
+  border: 26px solid rgba(201, 199, 255, 0.24);
 }
 .landing-arcs span:nth-child(1) {
   width: 460px;
@@ -180,28 +181,28 @@
   height: 660px;
   right: -220px;
   top: -270px;
-  border-color: rgba(143, 224, 206, 0.13);
+  border-color: rgba(201, 199, 255, 0.2);
 }
 .landing-arcs span:nth-child(3) {
   width: 880px;
   height: 880px;
   right: -330px;
   top: -380px;
-  border-color: rgba(143, 224, 206, 0.1);
+  border-color: rgba(201, 199, 255, 0.16);
 }
 .landing-arcs span:nth-child(4) {
   width: 1120px;
   height: 1120px;
   right: -450px;
   top: -500px;
-  border-color: rgba(143, 224, 206, 0.08);
+  border-color: rgba(201, 199, 255, 0.13);
 }
 .landing-arcs span:nth-child(5) {
   width: 1380px;
   height: 1380px;
   right: -580px;
   top: -630px;
-  border-color: rgba(143, 224, 206, 0.06);
+  border-color: rgba(201, 199, 255, 0.1);
 }
 
 .landing-tag {
@@ -277,6 +278,7 @@
 
 .landing-step-h {
   margin: 12px 0 0;
+  font-family: var(--font);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -305,7 +307,7 @@
   gap: 20px;
   padding: 20px 24px;
   border-radius: 12px;
-  background: #edf7f4;
+  background: var(--blue-tint, #eef0ff);
 }
 
 .landing-rule-badge {

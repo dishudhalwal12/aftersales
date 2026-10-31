@@ -119,8 +119,9 @@ export function BrainInsightsPanel({ businessId }: { businessId: string }) {
     <div>
       <div className="panel-head">
         <div>
+          <p className="eyebrow">03 — Brain</p>
           <h2>Business brain &amp; insights</h2>
-          <p className="tiny muted" style={{ marginTop: 4 }}>
+          <p className="panel-lede">
             The markdown is the source of truth. Chunks are derived, citable, and rebuilt on save.
           </p>
         </div>
