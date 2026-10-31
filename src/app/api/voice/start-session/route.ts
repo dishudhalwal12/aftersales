@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../server/db.ts";
-import { placeOutboundCall, buildCallVariables, generateDemoPin, sarvamStatus } from "../../../../server/voice/sarvam.ts";
+import { placeOutboundCall, generateDemoPin, sarvamStatus } from "../../../../server/voice/sarvam.ts";
+import { loadVoiceAgentContext, voiceCallContext } from "../../../../server/voice/context.ts";
+import {
+  buildCustomizationVariables,
+  loadActiveCustomizations,
+} from "../../../../server/voice/customizations.ts";
 import { callPlacementStatus } from "../../../../server/voice/session-state.ts";
 import {
   HttpError,
@@ -33,6 +38,8 @@ export async function POST(request: Request) {
     }
 
     const business = await loadOwnedBusiness(user.id, businessId);
+    const contextRow = await loadVoiceAgentContext(business.id);
+    const customizations = buildCustomizationVariables(await loadActiveCustomizations(business.id));
     const demoPin = generateDemoPin();
     const expiresAt = new Date(Date.now() + SESSION_TTL_MINUTES * 60 * 1000);
 
@@ -51,7 +58,7 @@ export async function POST(request: Request) {
       sessionId: session.id,
       businessName: business.name,
       demoPin,
-      variables: buildCallVariables(business),
+      variables: voiceCallContext(business, contextRow, customizations),
     });
 
     const status = callPlacementStatus(call, "initiated");

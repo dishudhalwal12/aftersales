@@ -51,6 +51,56 @@ model Business {
   channels         ChannelConnection[]
   tickets          Ticket[]
   voiceSessions    VoiceTestSession[]
+  voiceAgentContext BusinessVoiceAgentContext?
+  voiceCustomizations BusinessVoiceAgentCustomization[]
+}
+
+/**
+ * Extra context the voice agent needs but the business brain does not carry
+ * (the brain is a retrieval corpus, not a call script). One row per business;
+ * `virtualNumber` / `agentId` are the trusted identifiers that map an inbound
+ * call back to its tenant. They are not unique at the DB level because the
+ * resolver must be able to *detect* an ambiguous mapping and refuse the call
+ * rather than silently pick one tenant.
+ */
+model BusinessVoiceAgentContext {
+  businessId         String   @id
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessAddress    String   @default("")
+  // JSON string array of weekday names, e.g. ["Sunday"].
+  weeklyHolidays     String   @default("[]")
+  // JSON string array of language labels, e.g. ["Hindi","English"].
+  supportedLanguages String   @default("[]")
+  appointmentPolicy  String   @default("")
+  agentInstructions  String   @default("")
+  virtualNumber      String?
+  agentId            String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([virtualNumber])
+  @@index([agentId])
+}
+
+/**
+ * Category-specific behaviour the voice agent must follow (availability,
+ * booking rules, policies, call handling). One row per type rather than a
+ * column per feature, so a new customization type needs no DDL. The JSON is
+ * validated in `src/server/voice/customizations.ts` before it is stored.
+ */
+model BusinessVoiceAgentCustomization {
+  id                String   @id @default(cuid())
+  businessId        String
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customizationType String
+  configuration     String   @default("{}")
+  isEnabled         Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([businessId, customizationType])
+  @@index([businessId])
 }
 
 model KnowledgeChunk {

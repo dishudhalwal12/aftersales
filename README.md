@@ -107,6 +107,8 @@ production build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on
 | Provider-signed inbound edge | **REAL** | `x-channel-token` matching `CHANNEL_WEBHOOK_SECRET` delivers without a browser session; an unknown `businessId` is `404` |
 | Weekly sentiment + recurring complaints | **REAL** | `src/server/business/insights.ts`, 9 aggregation tests |
 | Voice session, PIN binding, mid-call retrieval, write-back | **REAL** | `start-session` → `sarvam-tool-search` → `sarvam-webhook` |
+| Dynamic call context (hours, holidays, languages, FAQs) | **REAL** | owner-saved per business, resolved from the called number or agent id (shared secret), never from a caller-supplied business id |
+| Availability and call-rule customizations | **REAL, REQUEST-ONLY** | weekly schedule + date overrides + temporary closures; appointment/cancellation/callback requests are queued for owner confirmation — no store, no fake calendar |
 | LLM classifier | **CONDITIONAL** | OpenRouter when `OPENROUTER_API_KEY` is set; otherwise a labelled **offline** retrieval classifier |
 | The offline classifier | **REAL, LABELLED** | BM25 coverage score, extractive answers. The dashboard shows a persistent banner and the API returns `degraded: true` |
 | Sarvam telephone leg | **NOT PLACED HERE** | Needs `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT`. Without them the panel is an explicit dry run |
@@ -182,7 +184,10 @@ Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/AR
 | `POST /api/channels/whatsapp/inbound`, `POST …/status` | Baileys-service callbacks, authenticated with `x-baileys-secret` |
 | `POST /api/voice/start-session` | bind phone + 4-digit PIN to one business |
 | `POST /api/voice/sarvam-tool-search` | per-business grounded facts mid-call |
-| `POST /api/voice/sarvam-context` | per-call variables for the voice agent |
+| `POST /api/voice/sarvam-context` | on-start business context; resolves a tenant from `agentId`/`virtualNumber` behind a shared secret, or falls back to a session/PIN |
+| `GET/PUT /api/businesses/[id]/voice-agent/context` | owner-saved call script, multiple-business mapping, active flag; core edits rebuild the brain |
+| `GET/PUT /api/businesses/[id]/voice-agent/customizations` | owner-saved availability, appointment, cancellation/rescheduling, callback, urgent and business instructions |
+| `POST /api/voice/sarvam-request` | mid-call appointment/reschedule/cancellation/callback capture → R5 draft ticket; always `confirmed: false` |
 | `POST /api/voice/sarvam-webhook` | call completion → transcript, duration, queue ticket |
 | `GET /api/health` | readiness |
 
@@ -208,6 +213,7 @@ Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an emp
 | `OPENROUTER_API_KEY` | no model calls; a *failed* call with `LLM_PROVIDER=openrouter` becomes R7 |
 | `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT` | the voice panel is an explicit dry run |
 | `SARVAM_WEBHOOK_TOKEN` | the voice webhook only accepts the signed-in owner's session |
+| `SARVAM_CONTEXT_TOKEN` | the context and request tools run without shared-secret auth (they say so in `warnings`); falls back to `SARVAM_WEBHOOK_TOKEN` |
 | `CHANNEL_WEBHOOK_SECRET` | only the signed-in owner (the dashboard simulator) may deliver to a channel webhook |
 | `INTEGRATION_ENCRYPTION_KEY` | provider connect/disconnect answers `503`; no credential is ever stored unencrypted |
 | `INTEGRATION_STATE_SECRET` | falls back to `AUTH_SECRET`; without either, OAuth cannot start |

@@ -32,6 +32,244 @@ const prisma = new PrismaClient();
 
 const HOUR_MS = 60 * 60 * 1000;
 
+/**
+ * Call-script fields that are not part of the retrieval brain. Mappings are
+ * intentionally left empty: the demo rents one shared number and one agent, so
+ * binding either one to both businesses would be an ambiguous mapping — the
+ * session/PIN fallback is the honest path until each business has its own.
+ * Re-running the seed never overwrites a mapping the owner saved.
+ */
+const VOICE_CONTEXT: Record<
+  string,
+  {
+    businessAddress: string;
+    weeklyHolidays: string[];
+    supportedLanguages: string[];
+    appointmentPolicy: string;
+    agentInstructions: string;
+  }
+> = {
+  [BUSINESS_A.id]: {
+    businessAddress: "3rd Floor, Orbit Plaza, MG Road, Bengaluru 560001",
+    weeklyHolidays: ["Sunday"],
+    supportedLanguages: ["Hindi", "English"],
+    appointmentPolicy:
+      "Demo calls are scheduled by the owner. Support hours are Monday to Saturday, 9:00 AM to 7:00 PM IST.",
+    agentInstructions:
+      "Quote only the plans in the brain. Never promise a refund after the 7-day window; offer the escalation email instead.",
+  },
+  [BUSINESS_B.id]: {
+    businessAddress: "12 Vidhyadhar Nagar, Jaipur 302039",
+    weeklyHolidays: ["Monday"],
+    supportedLanguages: ["Hindi", "English"],
+    appointmentPolicy:
+      "Appointments can be rescheduled free of charge up to 4 hours before the slot; later cancellations carry a ₹300 fee.",
+    agentInstructions:
+      "Never give a diagnosis or dosage. For pain, swelling or bleeding, offer a same-day slot or the front desk phone.",
+  },
+};
+
+/** Next occurrence of a weekday (0 = Sunday), always in the future. */
+function upcomingDate(weekday: number): string {
+  const now = new Date();
+  const delta = (weekday - now.getUTCDay() + 7) % 7 || 7;
+  const next = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + delta),
+  );
+  return next.toISOString().slice(0, 10);
+}
+
+/**
+ * Demo schedules for the two seeded businesses. The clinic deliberately shows
+ * both override kinds: a closed Wednesday and a special Saturday evening.
+ * Re-running the seed restores these values.
+ */
+function buildCustomizationSeed(): Record<
+  string,
+  Array<{ type: string; isEnabled: boolean; configuration: Record<string, unknown> }>
+> {
+  const weekday = (closed: boolean, windows: Array<{ start: string; end: string }>) => ({
+    closed,
+    windows,
+    note: "",
+  });
+  const morning = [{ start: "10:00", end: "14:00" }];
+
+  return {
+    [BUSINESS_A.id]: [
+      {
+        type: "availability",
+        isEnabled: true,
+        configuration: {
+          timezone: "Asia/Kolkata",
+          slotMinutes: 30,
+          bufferMinutes: 10,
+          maxPerSlot: 1,
+          minAdvanceHours: 4,
+          maxFutureDays: 30,
+          weekly: [
+            { day: "Monday", closed: false, windows: [{ start: "09:00", end: "18:00" }] },
+            { day: "Tuesday", closed: false, windows: [{ start: "09:00", end: "18:00" }] },
+            { day: "Wednesday", closed: false, windows: [{ start: "09:00", end: "18:00" }] },
+            { day: "Thursday", closed: false, windows: [{ start: "09:00", end: "18:00" }] },
+            { day: "Friday", closed: false, windows: [{ start: "09:00", end: "18:00" }] },
+            { day: "Saturday", closed: true, windows: [] },
+            { day: "Sunday", closed: true, windows: [] },
+          ],
+          dateOverrides: [],
+          temporaryClosures: [],
+        },
+      },
+      {
+        type: "appointment_booking",
+        isEnabled: true,
+        configuration: {
+          bookingRules:
+            "Demo and onboarding calls are 30 minutes. The owner confirms every slot after the call.",
+          noSlotBehavior: "Offer a callback request instead of promising a slot.",
+          requiredDetails: ["name", "phone", "preferred_date", "preferred_time"],
+        },
+      },
+      {
+        type: "cancellation_policy",
+        isEnabled: true,
+        configuration: {
+          policyText: "Demo calls can be cancelled free of charge up to 4 hours before the slot.",
+          cutoffHours: 4,
+          feeNote: "",
+        },
+      },
+      {
+        type: "rescheduling_policy",
+        isEnabled: true,
+        configuration: {
+          policyText: "Rescheduling is free up to 4 hours before the slot.",
+          cutoffHours: 4,
+          feeNote: "",
+        },
+      },
+      {
+        type: "callback_requests",
+        isEnabled: true,
+        configuration: {
+          instructions: "Ask what the call is about and take the best number to reach them.",
+          collectPhone: true,
+          responseWindow: "the same working day",
+        },
+      },
+      {
+        type: "urgent_call_handling",
+        isEnabled: true,
+        configuration: {
+          instructions: "If the caller is blocked on a live issue, take the details and flag it.",
+          emergencyInstructions:
+            "If anyone is in immediate danger, tell the caller to contact local emergency services now.",
+          transferNumber: null,
+          transferEnabled: false,
+        },
+      },
+      {
+        type: "business_specific_instructions",
+        isEnabled: true,
+        configuration: {
+          instructions:
+            "Quote only the plans in the brain. Never promise a refund outside the 7-day window.",
+        },
+      },
+    ],
+    [BUSINESS_B.id]: [
+      {
+        type: "availability",
+        isEnabled: true,
+        configuration: {
+          timezone: "Asia/Kolkata",
+          slotMinutes: 20,
+          bufferMinutes: 5,
+          maxPerSlot: 1,
+          minAdvanceHours: 2,
+          maxFutureDays: 45,
+          weekly: [
+            { day: "Monday", closed: true, windows: [] },
+            { day: "Tuesday", closed: false, windows: morning },
+            { day: "Wednesday", closed: false, windows: morning },
+            { day: "Thursday", closed: false, windows: morning },
+            { day: "Friday", closed: false, windows: morning },
+            { day: "Saturday", closed: false, windows: morning },
+            { day: "Sunday", closed: false, windows: morning },
+          ],
+          dateOverrides: [
+            { date: upcomingDate(3), ...weekday(true, []), note: "Doctor at a conference" },
+            { date: upcomingDate(6), ...weekday(false, [{ start: "16:00", end: "19:00" }]), note: "Special evening clinic" },
+          ],
+          temporaryClosures: [],
+        },
+      },
+      {
+        type: "appointment_booking",
+        isEnabled: true,
+        configuration: {
+          bookingRules:
+            "New patients are seen in the morning. The clinic confirms every appointment after the call.",
+          noSlotBehavior: "Offer the next available day or a callback request; never promise a slot.",
+          requiredDetails: ["name", "phone", "preferred_date", "preferred_time"],
+        },
+      },
+      {
+        type: "cancellation_policy",
+        isEnabled: true,
+        configuration: {
+          policyText:
+            "Appointments can be cancelled free of charge up to 4 hours before the slot.",
+          cutoffHours: 4,
+          feeNote: "Later cancellations carry a ₹300 fee.",
+        },
+      },
+      {
+        type: "rescheduling_policy",
+        isEnabled: true,
+        configuration: {
+          policyText:
+            "Appointments can be rescheduled free of charge up to 4 hours before the slot.",
+          cutoffHours: 4,
+          feeNote: "Later changes carry a ₹300 fee.",
+        },
+      },
+      {
+        type: "callback_requests",
+        isEnabled: true,
+        configuration: {
+          instructions:
+            "If no appointment works, take the patient's name and number for the front desk.",
+          collectPhone: true,
+          responseWindow: "the same working day",
+        },
+      },
+      {
+        type: "urgent_call_handling",
+        isEnabled: true,
+        configuration: {
+          instructions:
+            "For severe pain or swelling, offer the earliest slot or a front-desk callback.",
+          emergencyInstructions:
+            "If the caller describes a medical emergency, tell them to contact local emergency services immediately. Do not try to book a routine appointment first.",
+          transferNumber: null,
+          transferEnabled: false,
+        },
+      },
+      {
+        type: "business_specific_instructions",
+        isEnabled: true,
+        configuration: {
+          instructions:
+            "Never give a diagnosis or dosage. Always make clear that the clinic confirms the appointment later.",
+        },
+      },
+    ],
+  };
+}
+
+const CUSTOMIZATION_SEED = buildCustomizationSeed();
+
 const CHANNELS: Record<string, Array<{ type: string; status: string; autoSend: boolean }>> = {
   [BUSINESS_A.id]: [
     { type: "WHATSAPP", status: "CONNECTED", autoSend: true },
@@ -174,6 +412,48 @@ async function seedBusiness(
         autoSend: channel.autoSend,
         configJson: JSON.stringify({ mode: channel.status.toLowerCase() }),
       },
+    });
+  }
+
+  const voiceContext = VOICE_CONTEXT[business.id];
+  if (voiceContext !== undefined) {
+    await prisma.businessVoiceAgentContext.upsert({
+      where: { businessId: business.id },
+      create: {
+        businessId: business.id,
+        businessAddress: voiceContext.businessAddress,
+        weeklyHolidays: JSON.stringify(voiceContext.weeklyHolidays),
+        supportedLanguages: JSON.stringify(voiceContext.supportedLanguages),
+        appointmentPolicy: voiceContext.appointmentPolicy,
+        agentInstructions: voiceContext.agentInstructions,
+      },
+      // Mapping fields stay as the owner saved them.
+      update: {
+        businessAddress: voiceContext.businessAddress,
+        weeklyHolidays: JSON.stringify(voiceContext.weeklyHolidays),
+        supportedLanguages: JSON.stringify(voiceContext.supportedLanguages),
+        appointmentPolicy: voiceContext.appointmentPolicy,
+        agentInstructions: voiceContext.agentInstructions,
+      },
+    });
+  }
+
+  for (const customization of CUSTOMIZATION_SEED[business.id] ?? []) {
+    const configuration = JSON.stringify(customization.configuration);
+    await prisma.businessVoiceAgentCustomization.upsert({
+      where: {
+        businessId_customizationType: {
+          businessId: business.id,
+          customizationType: customization.type,
+        },
+      },
+      create: {
+        businessId: business.id,
+        customizationType: customization.type,
+        configuration,
+        isEnabled: customization.isEnabled,
+      },
+      update: { configuration, isEnabled: customization.isEnabled },
     });
   }
 

@@ -261,6 +261,7 @@ Leave a key empty until you really have the credential; a wrong value is worse t
 | `META_APP_ID`, `META_APP_SECRET` | <https://developers.facebook.com> → your app → **Settings → Basic**. Needs App Review for the messaging scopes. |
 | `META_WEBHOOK_VERIFY_TOKEN` | any random string **you** invent; paste the same one into Meta's webhook screen. |
 | `SARVAM_API_KEY`, `SARVAM_AGENT_ID`, `SARVAM_CALL_ENDPOINT`, `SARVAM_VIRTUAL_NUMBER` | your Sarvam account. Without them the voice panel is an explicit **dry run**. |
+| `SARVAM_WEBHOOK_TOKEN`, `SARVAM_CONTEXT_TOKEN` | random strings **you** invent. `SARVAM_WEBHOOK_TOKEN` authenticates call-completion webhooks; `SARVAM_CONTEXT_TOKEN` authenticates the on-start context tool (`/api/voice/sarvam-context`) and the request tool (`/api/voice/sarvam-request`), and falls back to the webhook token when empty. Empty means the context endpoint reports `contextAuth: "unconfigured"` instead of pretending it is secured. |
 | `BAILEYS_SERVICE_URL`, `BAILEYS_SERVICE_SECRET` | `baileys-service/` in this repo — see `baileys-service/README.md`. Needs a running bridge and a tunnel. |
 | `INTEGRATIONS_BASE_URL` | the public origin of the deployment, e.g. `https://your-app.vercel.app`. Empty locally. |
 | `AUTH_BASE_URL` | only for a non-Vercel deployment; Vercel's domain is detected automatically. |

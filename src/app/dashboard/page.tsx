@@ -8,6 +8,8 @@ import { signOutAction } from "../auth/actions.ts";
 import { DashboardShell, type TabKey } from "../../components/dashboard/DashboardShell.tsx";
 import { LiveQueuePanel } from "../../components/dashboard/LiveQueuePanel.tsx";
 import { VoiceTestPanel } from "../../components/dashboard/VoiceTestPanel.tsx";
+import { VoiceContextPanel } from "../../components/dashboard/VoiceContextPanel.tsx";
+import { VoiceCustomizationPanel } from "../../components/dashboard/VoiceCustomizationPanel.tsx";
 import { BrainInsightsPanel } from "../../components/dashboard/BrainInsightsPanel.tsx";
 import { ChannelsPanel } from "../../components/dashboard/ChannelsPanel.tsx";
 import type { BusinessSummary, VoiceSessionView } from "../../shared/api.ts";
@@ -123,12 +125,16 @@ export default async function DashboardPage({
     >
       {tab === "queue" && <LiveQueuePanel businessId={activeBusiness.businessId} />}
       {tab === "voice" && (
-        <VoiceTestPanel
-          businessId={activeBusiness.businessId}
-          businessName={activeBusiness.name}
-          sarvamConfigured={voice.configured}
-          lastSession={lastSession}
-        />
+        <>
+          <VoiceTestPanel
+            businessId={activeBusiness.businessId}
+            businessName={activeBusiness.name}
+            sarvamConfigured={voice.configured}
+            lastSession={lastSession}
+          />
+          <VoiceContextPanel businessId={activeBusiness.businessId} />
+          <VoiceCustomizationPanel businessId={activeBusiness.businessId} />
+        </>
       )}
       {tab === "brain" && <BrainInsightsPanel businessId={activeBusiness.businessId} />}
       {tab === "channels" && (

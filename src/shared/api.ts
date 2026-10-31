@@ -2,6 +2,19 @@
 
 import type { ActionStatus, RuleId, Sentiment, Specialist } from "./domain.ts";
 
+// Sent by the OAuth callback page to the dashboard window that opened it.
+export const OAUTH_CALLBACK_MESSAGE_TYPE = "aftersales:oauth-callback";
+
+export interface OAuthCallbackMessage {
+  type: typeof OAUTH_CALLBACK_MESSAGE_TYPE;
+  integration: "email" | "meta";
+  status: string;
+  businessId: string | null;
+  error: string | null;
+  message?: string | null;
+  emailAddress?: string | null;
+}
+
 export interface BusinessSummary {
   businessId: string;
   name: string;
@@ -214,6 +227,33 @@ export interface WebhookResponse {
   degraded: boolean;
 }
 
+/** Owner-editable voice agent context (core facts + call-script fields + mapping). */
+export interface VoiceAgentContextResponse {
+  businessId: string;
+  businessName: string;
+  businessType: string;
+  businessDescription: string;
+  productsServices: string;
+  openingHours: string;
+  faqs: string;
+  returnPolicy: string;
+  escalationEmail: string;
+  escalationPhone: string;
+  agentTone: string;
+  businessAddress: string;
+  weeklyHolidays: string[];
+  supportedLanguages: string[];
+  appointmentPolicy: string;
+  agentInstructions: string;
+  virtualNumber: string | null;
+  agentId: string | null;
+  isActive: boolean;
+  updatedAt: string | null;
+  brainVersion: number;
+  chunkCount: number;
+  recompiled?: boolean;
+}
+
 export interface VoiceSessionResponse {
   sessionId: string;
   businessId: string;
@@ -246,6 +286,130 @@ export interface VoiceWebhookResponse {
   actionStatus: string;
   routingRuleHit: string;
   duplicate: boolean;
+}
+
+/** The per-type configuration row set an owner edits in the dashboard. */
+export const VOICE_CUSTOMIZATION_TYPES = [
+  "availability",
+  "appointment_booking",
+  "cancellation_policy",
+  "rescheduling_policy",
+  "callback_requests",
+  "urgent_call_handling",
+  "business_specific_instructions",
+] as const;
+
+export type VoiceCustomizationType = (typeof VOICE_CUSTOMIZATION_TYPES)[number];
+
+export interface VoiceAvailabilityWindow {
+  start: string;
+  end: string;
+}
+
+export interface VoiceWeeklyDay {
+  day: string;
+  closed: boolean;
+  windows: VoiceAvailabilityWindow[];
+}
+
+export interface VoiceDateOverride {
+  date: string;
+  closed: boolean;
+  windows: VoiceAvailabilityWindow[];
+  note: string;
+}
+
+export interface VoiceTemporaryClosure {
+  from: string;
+  to: string;
+  reason: string;
+}
+
+export interface VoiceAvailabilityConfig {
+  timezone: string;
+  slotMinutes: number;
+  bufferMinutes: number;
+  maxPerSlot: number;
+  minAdvanceHours: number;
+  maxFutureDays: number;
+  weekly: VoiceWeeklyDay[];
+  dateOverrides: VoiceDateOverride[];
+  temporaryClosures: VoiceTemporaryClosure[];
+}
+
+export interface VoiceAppointmentBookingConfig {
+  bookingRules: string;
+  noSlotBehavior: string;
+  requiredDetails: string[];
+}
+
+export interface VoiceCancellationPolicyConfig {
+  policyText: string;
+  cutoffHours: number;
+  feeNote: string;
+}
+
+export interface VoiceReschedulingPolicyConfig {
+  policyText: string;
+  cutoffHours: number;
+  feeNote: string;
+}
+
+export interface VoiceCallbackRequestsConfig {
+  instructions: string;
+  collectPhone: boolean;
+  responseWindow: string;
+}
+
+export interface VoiceUrgentCallConfig {
+  instructions: string;
+  emergencyInstructions: string;
+  transferNumber: string | null;
+  transferEnabled: boolean;
+}
+
+export interface VoiceBusinessInstructionsConfig {
+  instructions: string;
+}
+
+export interface VoiceCustomizationConfigMap {
+  availability: VoiceAvailabilityConfig;
+  appointment_booking: VoiceAppointmentBookingConfig;
+  cancellation_policy: VoiceCancellationPolicyConfig;
+  rescheduling_policy: VoiceReschedulingPolicyConfig;
+  callback_requests: VoiceCallbackRequestsConfig;
+  urgent_call_handling: VoiceUrgentCallConfig;
+  business_specific_instructions: VoiceBusinessInstructionsConfig;
+}
+
+export interface VoiceCustomizationEntry<T = unknown> {
+  isEnabled: boolean;
+  configuration: T;
+  updatedAt: string | null;
+}
+
+export interface VoiceCustomizationsResponse {
+  businessId: string;
+  customizations: {
+    [K in VoiceCustomizationType]: VoiceCustomizationEntry<VoiceCustomizationConfigMap[K]>;
+  };
+  saved?: VoiceCustomizationType[];
+}
+
+/** The reply to a captured appointment / cancellation / callback request. */
+export interface VoiceRequestResponse {
+  requestId: string | null;
+  requestType: string;
+  accepted: boolean;
+  /** Literal false: nothing is booked or cancelled without a booking backend. */
+  confirmed: false;
+  pending: boolean;
+  duplicate: boolean;
+  intent: string;
+  routingRuleHit: string;
+  ticketState: string;
+  actionStatus: string;
+  message: string;
 }
 
 /** A persisted voice session, as the dashboard renders it after a reload. */

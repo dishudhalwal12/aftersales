@@ -147,7 +147,8 @@ line("SARVAM_API_KEY", "without it the voice panel is an explicit dry run");
 line("SARVAM_CALL_ENDPOINT", "the outbound-call URL from your Sarvam account");
 line("SARVAM_VIRTUAL_NUMBER", "the rented number shown in the dashboard");
 line("SARVAM_AGENT_ID", "the agent those calls are placed against");
-line("SARVAM_WEBHOOK_TOKEN", "the x-sarvam-token the platform sends back");
+line("SARVAM_WEBHOOK_TOKEN", "the x-saram-token the platform sends back");
+line("SARVAM_CONTEXT_TOKEN", "secret the on-start context tool presents; falls back to SARVAM_WEBHOOK_TOKEN");
 line("PUBLIC_WEBHOOK_BASE_URL", "public origin the voice agent calls back to");
 
 section("10. Demo door");
