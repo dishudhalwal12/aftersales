@@ -1,4 +1,3 @@
-import { errorResponse } from "../../../../../server/auth/tenant.ts";
 import { recordIntegrationError } from "../../../../../server/integrations/channels.ts";
 import { verifyOAuthState } from "../../../../../server/integrations/crypto.ts";
 import { IntegrationError } from "../../../../../server/integrations/errors.ts";
@@ -50,12 +49,15 @@ export async function GET(request: Request) {
       redirectUri: state.redirectUri,
     });
 
-    return oauthCallbackResponse({
-      integration: "meta",
-      status: "pending_selection",
-      businessId: state.businessId,
-      details: { assets, pendingExpiresAt: expiresAt },
-    });
+    return oauthCallbackResponse(
+      {
+        integration: "meta",
+        status: "pending_selection",
+        businessId: state.businessId,
+        details: { assets, pendingExpiresAt: expiresAt },
+      },
+      request,
+    );
   } catch (error) {
     const failure =
       error instanceof IntegrationError
@@ -63,15 +65,26 @@ export async function GET(request: Request) {
         : new IntegrationError(500, "META_OAUTH_FAILED", "The Meta connection could not be completed.");
 
     if (businessId) {
-      await recordIntegrationError(businessId, "FACEBOOK", META_ERROR_KEY, failure.message);
-      return oauthCallbackResponse({
-        integration: "meta",
-        status: "error",
-        businessId,
-        error: failure.reason,
-      });
+      try {
+        await recordIntegrationError(businessId, "FACEBOOK", META_ERROR_KEY, failure.message);
+      } catch (recordError) {
+        console.error("[oauth:meta] could not record the failure on the channel", {
+          businessId,
+          error: recordError instanceof Error ? recordError.message : String(recordError),
+        });
+      }
     }
 
-    return errorResponse(failure);
+    return oauthCallbackResponse(
+      {
+        integration: "meta",
+        status: "error",
+        ...(businessId ? { businessId } : {}),
+        error: failure.reason,
+        httpStatus: failure.status,
+        details: { message: failure.message },
+      },
+      request,
+    );
   }
 }

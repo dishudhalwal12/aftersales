@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiFetch } from "./client.ts";
-import type {
-  EmailStatusResponse,
-  MetaAsset,
-  MetaAssetsResponse,
-  MetaChannelSummary,
-  MetaStatusResponse,
-  WhatsappConnectionResponse,
+import {
+  OAUTH_CALLBACK_MESSAGE_TYPE,
+  type EmailStatusResponse,
+  type MetaAsset,
+  type MetaAssetsResponse,
+  type MetaChannelSummary,
+  type MetaStatusResponse,
+  type OAuthCallbackMessage,
+  type WhatsappConnectionResponse,
 } from "../../shared/api.ts";
 
 const POLL_INTERVAL_MS = 2500;
@@ -28,15 +30,33 @@ function formatWhen(iso: string | null): string {
 }
 
 function openAuthWindow(url: string): boolean {
-  // `noopener` in the feature string makes window.open return null, so the
-  // popup is detached from this window explicitly instead.
+  // Keep the opener reference: the backend callback page reports its result
+  // with window.opener.postMessage(...). Only URLs built by our own connect
+  // endpoint are opened here, so the popup is not untrusted content.
   const popup = window.open(url, "_blank", "width=560,height=760");
   if (!popup) {
     window.location.assign(url);
     return false;
   }
-  popup.opener = null;
   return true;
+}
+
+function readOAuthCallbackMessage(value: unknown): OAuthCallbackMessage | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (record["type"] !== OAUTH_CALLBACK_MESSAGE_TYPE) return null;
+  if (record["integration"] !== "email" && record["integration"] !== "meta") return null;
+  if (typeof record["status"] !== "string") return null;
+
+  return {
+    type: OAUTH_CALLBACK_MESSAGE_TYPE,
+    integration: record["integration"],
+    status: record["status"],
+    businessId: typeof record["businessId"] === "string" ? record["businessId"] : null,
+    error: typeof record["error"] === "string" ? record["error"] : null,
+    message: typeof record["message"] === "string" ? record["message"] : null,
+    emailAddress: typeof record["emailAddress"] === "string" ? record["emailAddress"] : null,
+  };
 }
 
 function emailBadge(email: EmailStatusResponse | null): Badge {
@@ -156,6 +176,58 @@ export function IntegrationsPanel({
     };
   }, [fetchEmail, fetchMeta, fetchWhatsapp, loadAssets]);
 
+  // The OAuth popup posts its outcome here as soon as the backend callback
+  // finishes, so an error stops the wait immediately instead of after the
+  // poll deadline. Origin and business are both checked before acting.
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const message = readOAuthCallbackMessage(event.data);
+      if (!message) return;
+      if (message.businessId && message.businessId !== businessId) return;
+
+      setWaiting(null);
+
+      if (message.integration === "email") {
+        if (message.status === "error") {
+          setError(
+            message.message ?? "Gmail connection failed. Start the connection again to retry.",
+          );
+        } else {
+          setError(null);
+          setNote(
+            message.emailAddress ? `Gmail connected as ${message.emailAddress}.` : "Gmail connected.",
+          );
+        }
+        void fetchEmail()
+          .then(setEmail)
+          .catch((caught: unknown) => setError(describeError(caught)));
+        return;
+      }
+
+      void (async () => {
+        try {
+          const next = await fetchMeta();
+          setMeta(next);
+          if (next.pendingSelection) {
+            setError(null);
+            setNote("Meta authorization received — choose the Page or Instagram account to connect.");
+            await loadAssets();
+          } else if (message.status === "error") {
+            setError(message.message ?? "Meta connection failed. Start the connection again to retry.");
+          } else {
+            setNote("Meta channel connected.");
+          }
+        } catch (caught) {
+          setError(describeError(caught));
+        }
+      })();
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [businessId, fetchEmail, fetchMeta, loadAssets]);
+
   useEffect(() => {
     if (waiting === null) return;
     let cancelled = false;
@@ -172,6 +244,15 @@ export function IntegrationsPanel({
           if (next.connected) {
             setWaiting(null);
             setNote(`Gmail connected as ${next.emailAddress ?? "your account"}.`);
+            return;
+          }
+          // The connect route clears the previous error, so an error here is
+          // from this attempt (the popup message may never have arrived).
+          if (next.status === "error") {
+            setWaiting(null);
+            setError(
+              next.lastError ?? "Gmail connection failed. Start the connection again to retry.",
+            );
             return;
           }
         } else if (waiting === "meta") {

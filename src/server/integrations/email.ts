@@ -35,8 +35,38 @@ export const EMAIL_CONFIG_KEY = "email";
 export const EMAIL_ERROR_KEY = "emailLastError";
 const ACCESS_TOKEN_SAFETY_MS = 120_000;
 const DEFAULT_POLL_LIMIT = 10;
+// The OAuth callback cannot wait forever on Google: a stuck provider request
+// would leave the popup spinning and the dashboard polling until its deadline.
+const PROVIDER_TIMEOUT_MS = 15_000;
 
 export type EmailFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
+async function callGoogle(
+  fetchImpl: EmailFetch,
+  input: string,
+  init: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetchImpl(input, { ...init, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new IntegrationError(
+        504,
+        "EMAIL_PROVIDER_TIMEOUT",
+        "Google did not respond in time. Start the connection again to retry."
+      );
+    }
+    throw new IntegrationError(
+      502,
+      "EMAIL_PROVIDER_UNREACHABLE",
+      "Google could not be reached. Check the connection and try again."
+    );
+  }
+}
 
 export type EmailProviderSettings = {
   provider: string;
@@ -197,7 +227,7 @@ export async function exchangeGmailCode(input: {
     grant_type: "authorization_code",
   });
 
-  const response = await fetchImpl(GOOGLE_TOKEN_URL, {
+  const response = await callGoogle(fetchImpl, GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -228,7 +258,7 @@ export async function fetchGmailProfile(
   accessToken: string,
   fetchImpl: EmailFetch = fetch
 ): Promise<{ emailAddress: string; messagesTotal: number | null }> {
-  const response = await fetchImpl(`${GMAIL_API_BASE}/users/me/profile`, {
+  const response = await callGoogle(fetchImpl, `${GMAIL_API_BASE}/users/me/profile`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
   const json = await readJson(response);
@@ -254,12 +284,15 @@ function fallbackStatus(previousStatus: unknown): "UNAVAILABLE" | "TEST_MODE" | 
     : "UNAVAILABLE";
 }
 
+export type EmailConnectStep = "exchanging_code" | "saving";
+
 export type CompleteEmailConnectionInput = {
   businessId: string;
   userId: string;
   code: string;
   redirectUri: string;
   fetchImpl?: EmailFetch | undefined;
+  onStep?: ((step: EmailConnectStep) => void) | undefined;
 };
 
 export async function completeEmailConnection(
@@ -277,6 +310,7 @@ export async function completeEmailConnection(
 
   const channel = await ensureChannelConnection(input.businessId, "GMAIL");
   const existing = readEmailConnection(channel.configJson);
+  input.onStep?.("exchanging_code");
   const tokens = await exchangeGmailCode({
     code: input.code,
     redirectUri: input.redirectUri,
@@ -317,6 +351,7 @@ export async function completeEmailConnection(
         : channel.autoSend,
   };
 
+  input.onStep?.("saving");
   const updated = await updateChannelConfig(channel, {
     config: { [EMAIL_CONFIG_KEY]: stored, [EMAIL_ERROR_KEY]: null },
     status: "CONNECTED",

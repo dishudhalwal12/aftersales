@@ -7,7 +7,10 @@ import {
   requireUser,
 } from "../../../../../server/auth/tenant.ts";
 import { resolveIntegrationBaseUrl } from "../../../../../server/integrations/base-url.ts";
-import { ensureChannelConnection } from "../../../../../server/integrations/channels.ts";
+import {
+  clearIntegrationError,
+  ensureChannelConnection,
+} from "../../../../../server/integrations/channels.ts";
 import {
   OAUTH_STATE_TTL_SECONDS,
   isIntegrationEncryptionConfigured,
@@ -15,6 +18,7 @@ import {
   signOAuthState,
 } from "../../../../../server/integrations/crypto.ts";
 import {
+  EMAIL_ERROR_KEY,
   buildGmailAuthorizationUrl,
   isEmailProviderSupported,
   readEmailProviderSettings,
@@ -55,7 +59,10 @@ export async function POST(request: Request) {
       );
     }
 
-    await ensureChannelConnection(businessId, "GMAIL");
+    // A fresh attempt supersedes the previous failure, so the status poll
+    // cannot pick up a stale error while this flow is in progress.
+    const channel = await ensureChannelConnection(businessId, "GMAIL");
+    await clearIntegrationError(channel, EMAIL_ERROR_KEY);
 
     let baseUrl: string;
     try {

@@ -7,6 +7,8 @@ import {
   GMAIL_SCOPES,
   buildGmailAuthorizationUrl,
   buildGmailRawMessage,
+  exchangeGmailCode,
+  fetchGmailProfile,
   getValidGmailAccessToken,
   isEmailProviderSupported,
   parseEmailAddress,
@@ -177,6 +179,68 @@ describe("Gmail authorization URL", () => {
     assert.equal(url.searchParams.get("access_type"), "offline");
     assert.equal(url.searchParams.get("prompt"), "consent");
     assert.deepEqual(url.searchParams.get("scope")?.split(" "), [...GMAIL_SCOPES]);
+  });
+});
+
+describe("Gmail token exchange", () => {
+  const redirectUri = "http://localhost:3000/api/social/email/callback";
+
+  before(() => {
+    delete process.env.EMAIL_PROVIDER;
+    process.env.EMAIL_GMAIL_CLIENT_ID = "client-id.apps.googleusercontent.com";
+    process.env.EMAIL_GMAIL_CLIENT_SECRET = "client-secret";
+  });
+
+  it("sends the same client id, secret and redirect URI used to authorize", async () => {
+    const { impl, calls } = fetchStub(() =>
+      jsonResponse({ access_token: "access-token", expires_in: 3600, scope: "gmail.modify" }),
+    );
+
+    const result = await exchangeGmailCode({ code: "auth-code", redirectUri, fetchImpl: impl });
+
+    assert.equal(result.accessToken, "access-token");
+    const body = new URLSearchParams(String(calls[0]?.init?.body));
+    assert.equal(body.get("code"), "auth-code");
+    assert.equal(body.get("client_id"), "client-id.apps.googleusercontent.com");
+    assert.equal(body.get("client_secret"), "client-secret");
+    assert.equal(body.get("redirect_uri"), redirectUri);
+    assert.equal(body.get("grant_type"), "authorization_code");
+  });
+
+  it("bounds every provider call with an abort signal", async () => {
+    const { impl, calls } = fetchStub(() => jsonResponse({ emailAddress: "support@example.com" }));
+
+    await fetchGmailProfile("access-token", impl);
+
+    assert.ok(calls[0]?.init?.signal instanceof AbortSignal);
+  });
+
+  it("turns a provider timeout into a 504 instead of waiting forever", async () => {
+    const timeout = Object.assign(new Error("The operation was aborted due to timeout"), {
+      name: "TimeoutError",
+    });
+    const failing = async () => {
+      throw timeout;
+    };
+
+    await assert.rejects(
+      () => exchangeGmailCode({ code: "auth-code", redirectUri, fetchImpl: failing }),
+      integrationError("EMAIL_PROVIDER_TIMEOUT"),
+    );
+    await assert.rejects(
+      () => fetchGmailProfile("access-token", failing),
+      integrationError("EMAIL_PROVIDER_TIMEOUT"),
+    );
+  });
+
+  it("reports an unreachable provider as a 502", async () => {
+    await assert.rejects(
+      () =>
+        fetchGmailProfile("access-token", async () => {
+          throw new TypeError("fetch failed");
+        }),
+      integrationError("EMAIL_PROVIDER_UNREACHABLE"),
+    );
   });
 });
 
