@@ -8,6 +8,7 @@ import {
   getBaileysConnection,
   isBaileysConfigured,
   isBaileysConnectionMissing,
+  probeBaileysService,
   sendBaileysMessage,
   startBaileysConnection,
 } from "../src/server/integrations/baileys.ts";
@@ -237,5 +238,78 @@ describe("Baileys service client", () => {
     const fetch = fetchStub(() => jsonResponse({ connectionId: "wa_a/b", status: "connected" }));
     await getBaileysConnection("wa_a/b", fetch.impl);
     assert.equal(fetch.calls[0]?.url, "http://localhost:3001/status/wa_a%2Fb");
+  });
+});
+
+describe("probeBaileysService", () => {
+  it("reports unconfigured without making a request", async () => {
+    delete process.env.BAILEYS_SERVICE_SECRET;
+    const fetch = fetchStub(() => jsonResponse({ status: "ok" }));
+
+    const probe = await probeBaileysService(fetch.impl);
+
+    assert.equal(probe.configured, false);
+    assert.equal(fetch.calls.length, 0);
+    process.env.BAILEYS_SERVICE_SECRET = "service-secret";
+  });
+
+  it("reports the bridge reachable and how many numbers are linked", async () => {
+    const fetch = fetchStub(() =>
+      jsonResponse({
+        status: "ok",
+        service: "aftersales-baileys",
+        uptimeSeconds: 120,
+        connections: { total: 3, connected: 1 },
+      }),
+    );
+
+    const probe = await probeBaileysService(fetch.impl);
+
+    assert.ok(probe.configured, "expected the bridge to be configured");
+    assert.ok(probe.reachable, "expected the bridge to be reachable");
+    assert.equal(probe.connections.total, 3);
+    assert.equal(probe.connections.connected, 1);
+  });
+
+  it("asks /health without leaking the shared secret to an unauthenticated endpoint", async () => {
+    const fetch = fetchStub(() => jsonResponse({ status: "ok", connections: { total: 0, connected: 0 } }));
+
+    await probeBaileysService(fetch.impl);
+
+    assert.equal(fetch.calls[0]?.url, "http://localhost:3001/health");
+    assert.equal(fetch.calls[0]?.init?.method, "GET");
+    const headers = (fetch.calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    assert.equal(headers[BAILEYS_SECRET_HEADER], undefined);
+  });
+
+  it("reports unreachable, with a reason, instead of throwing", async () => {
+    const fetch = fetchStub(() => {
+      throw new TypeError("fetch failed");
+    });
+
+    const probe = await probeBaileysService(fetch.impl);
+
+    assert.ok(probe.configured);
+    assert.equal(probe.reachable, false);
+    assert.match(probe.error, /unreachable|timed out/);
+  });
+
+  it("treats a non-200 answer as unreachable", async () => {
+    const fetch = fetchStub(() => jsonResponse({ status: "down" }, 503));
+
+    const probe = await probeBaileysService(fetch.impl);
+
+    assert.ok(probe.configured);
+    assert.equal(probe.reachable, false);
+    assert.match(probe.error, /503/);
+  });
+
+  it("treats a malformed health body as unreachable", async () => {
+    const fetch = fetchStub(() => jsonResponse({ unexpected: true }));
+
+    const probe = await probeBaileysService(fetch.impl);
+
+    assert.ok(probe.configured);
+    assert.equal(probe.reachable, false);
   });
 });

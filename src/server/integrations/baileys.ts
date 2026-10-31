@@ -65,6 +65,91 @@ export function isBaileysConfigured(): boolean {
   return readServiceConfig() !== null;
 }
 
+export type BaileysProbe =
+  | { configured: false }
+  | {
+      configured: true;
+      reachable: true;
+      uptimeSeconds: number | null;
+      connections: { total: number; connected: number };
+    }
+  | { configured: true; reachable: false; error: string };
+
+// A probe answers a human looking at a status page, so it must fail fast. The
+// 15s connect budget belongs to a request that blocks on a QR; reusing it here
+// would leave the page hanging for the same 15s before admitting the laptop is
+// asleep. /health is deliberately unauthenticated, so the shared secret is not
+// sent to it — a liveness endpoint has no business holding a credential.
+const PROBE_TIMEOUT_MS = 2_500;
+
+function parseHealth(body: unknown):
+  | { uptimeSeconds: number | null; connections: { total: number; connected: number } }
+  | null {
+  if (typeof body !== "object" || body === null) return null;
+  const record = body as Record<string, unknown>;
+  if (record.status !== "ok") return null;
+
+  const raw = record.connections;
+  if (typeof raw !== "object" || raw === null) return null;
+  const { total, connected } = raw as Record<string, unknown>;
+  if (typeof total !== "number" || typeof connected !== "number") return null;
+
+  return {
+    uptimeSeconds:
+      typeof record.uptimeSeconds === "number" ? Math.round(record.uptimeSeconds) : null,
+    connections: { total, connected },
+  };
+}
+
+/**
+ * Answers whether the bridge on the laptop is actually awake.
+ *
+ * `isBaileysConfigured()` only proves the two variables are set. With the
+ * bridge hosted on a machine that sleeps, the useful question is reachability,
+ * so this never throws: a probe that fails is a result, not an error.
+ */
+export async function probeBaileysService(
+  fetchImpl: FetchLike = fetch
+): Promise<BaileysProbe> {
+  const config = readServiceConfig();
+  if (!config) return { configured: false };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetchImpl(`${config.baseUrl}/health`, {
+      method: "GET",
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { configured: true, reachable: false, error: `The bridge answered ${response.status}.` };
+    }
+
+    const parsed = parseHealth(await response.json());
+    if (parsed === null) {
+      return {
+        configured: true,
+        reachable: false,
+        error: "The bridge answered with a body this app does not recognise.",
+      };
+    }
+
+    return { configured: true, reachable: true, ...parsed };
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === "AbortError";
+    return {
+      configured: true,
+      reachable: false,
+      error: aborted ? "The bridge timed out." : "The bridge is unreachable.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Guards the service -> backend webhooks. An unset secret means the service is
 // not wired up yet, so the route answers 503 rather than running open.
 export function assertBaileysSecret(provided: string | null | undefined): void {
