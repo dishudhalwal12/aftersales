@@ -87,6 +87,7 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | `Ticket` | channel, customer ref, state, the four fields, rule, answer, citations | `(businessId, externalMessageId)` **unique per business** = idempotency |
 | `TicketEvent` | type + JSON payload | append-only; the drawer renders a summary per type |
 | `VoiceTestSession` | `demoPin`, `judgePhone`, status, transcript, expiry | 10-minute TTL, one business per session |
+| `WeeklyInsightReport` | week window, outcome/sentiment counts + index, complaint payload | one immutable row per `(business, completed ISO week)`; the unique pair is the idempotency key |
 
 ## Tenant and trust boundaries
 
@@ -101,6 +102,17 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | Voice `demoPin` / `sessionId` | the capability that scopes a call | expired session ⇒ `410`, wrong tenant ⇒ `403` |
 | Voice `citedChunkIds` from the platform | evidence, not authority | kept only when the id is this business's chunk ⇒ R2 escalation otherwise |
 | The end customer | always unauthenticated | zero customer credentials exist to leak |
+
+## Weekly report: one completed window, two generation paths
+
+`GET /api/businesses/[id]/insights` materialises the completed ISO week's report when it is missing
+(`trigger: lazy`); the secret-gated `/api/cron/weekly-insights` sweeps every business on
+`vercel.json`'s Monday schedule (`trigger: cron`). Both upsert on `(businessId, weekStart)`, so the row
+is created once and `generatedAt` never moves on a re-read. The report carries the sentiment index and
+its week-over-week trend, the four-bucket mix, the outcome breakdown, and recurring complaints
+(repeated **and** negative or escalated) ranked with `new | rising | cooling | steady` deltas. The
+rolling 7-day card above it is a different window and is labelled as such. A persistence failure
+degrades the read to `weeklyReport: null` rather than failing the owner's insights request.
 
 ## Voice: one number, per-call context
 
@@ -139,7 +151,7 @@ the owner just created. That is what makes AT-04 (same number, two businesses, n
 
 | | |
 |---|---|
-| **Real** | R1–R7 · scoped BM25 · brain compile/chunk/cite · onboarding · queue + drawer + events · human actions · tenant-scoped idempotent webhooks · provider-signed inbound edge · insights · voice session lifecycle + idempotent completion |
+| **Real** | R1–R7 · scoped BM25 · brain compile/chunk/cite · onboarding · queue + drawer + events · human actions · tenant-scoped idempotent webhooks · provider-signed inbound edge · insights · sentiment trend + persisted weekly reports · voice session lifecycle + idempotent completion |
 | **Conditional** | OpenRouter classifier (needs a key) — otherwise a labelled offline classifier |
 | **Simulated, labelled** | WhatsApp/Instagram/Gmail transports; the Sarvam telephone leg |
 | **Superseded** | `docs/product/CAPABILITY.md` — the Pipecat/Laya/MCP design this repository started from |
