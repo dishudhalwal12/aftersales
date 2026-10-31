@@ -135,6 +135,41 @@ completed call's transcript, duration and outcome are read back from the databas
 The shared number is never mutated: the business is a **per-call variable**, resolved from the session
 the owner just created. That is what makes AT-04 (same number, two businesses, no bleed) true.
 
+## Hydration across browser extensions
+
+`/auth` reported "a tree hydrated but some attributes of the server rendered HTML didn't match",
+naming `bis_skin_checked`, `bis_register` and `__processed_<uuid>__` on elements we render. Those
+attributes are Bitdefender's — its web protection writes them into the DOM before React hydrates.
+Grammarly, LanguageTool, Dark Reader and ColorZilla do the same under their own names.
+
+The server output was never the problem: two requests for `/auth` are byte-identical apart from
+Next's per-request nonce. The mismatch is third-party writes landing between parse and hydration,
+and React compares everything React rendered — including Next's own `<div hidden>` metadata
+boundary, which no `suppressHydrationWarning` of ours can reach.
+
+`src/shared/hydration/` holds the fix:
+
+- `extension-attributes.ts` — the marker patterns (`EXTENSION_ATTRIBUTE_PATTERNS`) plus a stripper.
+- `guard-install.ts` — `installHydrationGuard`. It **refuses writes** of those attribute names on
+  `Element.prototype` (`setAttribute`, `setAttributeNS`, `setAttributeNode`), sweeps the markers an
+  extension already wrote, and keeps a `MutationObserver` as a net for write paths the patch does
+  not cover. Refusing the write is what makes it deterministic: a MutationObserver strip is a
+  microtask, React hydrates synchronously, so cleanup alone can lose the race.
+- `src/instrumentation-client.ts` arms it. `instrumentation-client` is the one client entry that
+  runs before `hydrateRoot`. Every other home was tried and rejected in a real browser:
+  `next/script strategy="beforeInteractive"` defers through `self.__next_s`; a hand-written
+  `<head>` shifts Next's head entries; React 19 refuses an inline `<script>` rendered by a
+  component; and a `"use client"` module imported by the layout evaluates *after* Next has
+  hydrated the outer boundary (the mismatch then lands on Next's own `<div hidden>`).
+
+`<html>` and `<body>` also carry `suppressHydrationWarning`, which covers markers an extension
+puts on those two elements and any extension the guard does not know yet.
+
+`npm run verify:hydration` proves it in headless Chrome: it plays the extension over CDP at
+`document_start` and requires (1) an untouched page to hydrate cleanly, (2) an unknown marker to
+still produce the mismatch — so the simulation cannot silently stop testing anything — and
+(3) the known markers to produce no error and leave nothing behind.
+
 ## Built today
 
 | | |

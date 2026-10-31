@@ -17,6 +17,7 @@
     "verify:phase1": "node --env-file-if-exists=.env scripts/verify-phase1.mjs",
     "verify:phase3": "node --env-file-if-exists=.env scripts/verify-phase3.mjs",
     "typecheck": "tsc --noEmit",
+    "verify:hydration": "node scripts/verify-hydration.mjs",
     "landing": "node scripts/serve-landing.mjs",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",

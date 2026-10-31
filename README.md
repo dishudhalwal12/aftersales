@@ -48,10 +48,11 @@ npm run dev          # http://localhost:3000
 Or the shortcuts:
 
 ```bash
-npm test             # 265 tests, native runner, no test dependencies
+npm test             # 304 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build (see "Known limits" for the Windows prerender issue)
 npm run env:check    # which keys are set / missing (never prints values)
+npm run verify:hydration # headless Chrome: browser extensions cannot break hydration
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
 npm run verify:phase3 # boots the app and asserts the Phase 3 channel gate over HTTP + DB
 npm run verify:phase4 # boots the app and asserts the voice gate over HTTP + the DB
