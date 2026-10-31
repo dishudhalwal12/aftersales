@@ -15,6 +15,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.3"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Only the service package: `tests/` is not part of what gets installed.
+packages = ["laya_service"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

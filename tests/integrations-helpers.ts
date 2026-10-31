@@ -61,6 +61,8 @@ export function respondResult(overrides: Partial<RespondResult> = {}): RespondRe
     degraded: true,
     duplicate: false,
     classifierError: null,
+    decisionSheet: null,
+    decisionSheetError: "not_configured",
     ...overrides,
   };
 }

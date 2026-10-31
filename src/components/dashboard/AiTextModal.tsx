@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "./client.ts";
+import { DecisionSheetPanel, decisionSheetReasonText } from "./DecisionSheetPanel.tsx";
 import type { TextQueryResponse } from "../../shared/api.ts";
 import {
   ActionPill,
@@ -192,6 +193,13 @@ export function AiTextModal({
                 </div>
               </div>
             </div>
+
+            <DecisionSheetPanel
+              sheet={result.decisionSheet}
+              unavailableReason={decisionSheetReasonText(result.decisionSheetError)}
+              classifierUrgency={result.urgencyScore}
+              classifierSentiment={result.sentiment}
+            />
 
             <div className="glass panel-tight" style={{ marginTop: 14, background: "#fff" }}>
               <p className="eyebrow" style={{ marginBottom: 6 }}>

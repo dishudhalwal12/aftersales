@@ -6,6 +6,7 @@ import {
   fetchDecisionSheet,
   isLayaConfigured,
   parseDecisionSheet,
+  parseStoredDecisionSheet,
 } from "../src/server/integrations/laya.ts";
 import { fetchStub, jsonResponse, requestJson } from "./integrations-helpers.ts";
 
@@ -224,5 +225,19 @@ describe("Decision sheet parsing", () => {
       decisions: [{ ...sheetBody().decisions[0], options: undefined }],
     });
     assert.equal(parseDecisionSheet(withoutOptions), null);
+  });
+
+  it("round-trips a sheet stored on a ticket", () => {
+    const stored = parseStoredDecisionSheet(JSON.stringify(sheetBody()));
+    assert.ok(stored);
+    assert.equal(stored.decisions.length, 3);
+    assert.equal(stored.decisions[1]?.value, 0.87);
+  });
+
+  it("reads an empty or stale column as no sheet instead of throwing", () => {
+    assert.equal(parseStoredDecisionSheet(""), null);
+    assert.equal(parseStoredDecisionSheet("   "), null);
+    assert.equal(parseStoredDecisionSheet("not json"), null);
+    assert.equal(parseStoredDecisionSheet('{"provider":"laya-mlx"}'), null);
   });
 });

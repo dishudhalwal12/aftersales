@@ -115,8 +115,7 @@ function parseDecision(value: unknown): LayaDecision | null {
 }
 
 /** Strict parse. Anything off-contract is `null`, never a coerced sheet. */
-export function parseDecisionSheet(value: unknown): DecisionSheet | null {
-  if (!isRecord(value)) return null;
+export function parseDecisionSheet(value: unknown): DecisionSheet | null {  if (!isRecord(value)) return null;
 
   const provider = value["provider"];
   const model = value["model"];
@@ -138,6 +137,22 @@ export function parseDecisionSheet(value: unknown): DecisionSheet | null {
   }
 
   return { provider: "laya-mlx", model, sheetVersion, latencyMs, decisions: parsed };
+}
+
+/**
+ * Parse a sheet that was persisted on a ticket.
+ *
+ * An empty column is a ticket triaged while the service was unavailable; junk means the
+ * stored value no longer matches this contract. Both read as "no sheet", so an old ticket
+ * degrades to no panel instead of breaking the queue.
+ */
+export function parseStoredDecisionSheet(raw: string): DecisionSheet | null {
+  if (raw.trim().length === 0) return null;
+  try {
+    return parseDecisionSheet(JSON.parse(raw) as unknown);
+  } catch {
+    return null;
+  }
 }
 
 function readServiceError(data: unknown): string | null {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, emitDataChanged, timeAgo, useDataChanged } from "./client.ts";
+import { DecisionSheetPanel, LayaHeadline, decisionSheetReasonText } from "./DecisionSheetPanel.tsx";
 import type { TicketDetailResponse, TicketListResponse, TicketSummary } from "../../shared/api.ts";
 import {
   ActionPill,
@@ -16,6 +17,15 @@ import {
 
 const FILTERS = ["all", "new", "triaged", "escalated", "replied", "closed"] as const;
 type Filter = (typeof FILTERS)[number];
+
+/** The stored reason a ticket has no decision sheet, in words a judge can read. */
+function decisionSheetReason(detail: TicketDetailResponse | null, ticketId: string): string | null {
+  if (detail === null || detail.ticket.ticketId !== ticketId) return null;
+  const event = detail.events.find((entry) => entry.eventType === "DECISION_SHEET_UNAVAILABLE");
+  if (!event || typeof event.payload !== "object" || event.payload === null) return null;
+  const reason = (event.payload as { reason?: unknown }).reason;
+  return typeof reason === "string" ? decisionSheetReasonText(reason) : null;
+}
 
 export function LiveQueuePanel({ businessId }: { businessId: string }) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -161,6 +171,7 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
                 <ActionPill status={ticket.actionStatus} />
                 <span className="mono">conf {ticket.confidenceScore}</span>
                 <SentimentPill sentiment={ticket.sentiment} />
+                <LayaHeadline sheet={ticket.decisionSheet} />
               </div>
             </button>
           ))}
@@ -215,6 +226,13 @@ export function LiveQueuePanel({ businessId }: { businessId: string }) {
                 <span className="badge badge-neutral">{selected.specialistAssigned}</span>
                 <span className="badge badge-neutral mono">{selected.intent}</span>
               </div>
+
+              <DecisionSheetPanel
+                sheet={selected.decisionSheet}
+                unavailableReason={decisionSheetReason(detail, selected.ticketId)}
+                classifierUrgency={selected.urgencyScore}
+                classifierSentiment={selected.sentiment}
+              />
 
               <p className="eyebrow" style={{ marginTop: 16, marginBottom: 6 }}>
                 {selected.actionStatus === "answered" ? "Reply sent" : "Agent draft (not sent)"}

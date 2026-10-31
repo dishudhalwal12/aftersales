@@ -7,3 +7,6 @@ __pycache__/
 
 # Local secrets — the service reads LAYA_SERVICE_SECRET from the environment.
 .env
+
+# Editable-install metadata from `uv sync` / `pip install -e`
+*.egg-info/

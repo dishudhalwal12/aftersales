@@ -5,7 +5,9 @@ import {
   isTicketState,
   type TicketAction,
 } from "../../../../../server/business/tickets.ts";
+import { parseStoredDecisionSheet } from "../../../../../server/integrations/laya.ts";
 import { errorResponse, loadOwnedBusiness, readJson, requireUser } from "../../../../../server/auth/tenant.ts";
+import type { TicketSummary } from "../../../../../shared/api.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +38,7 @@ export async function GET(request: Request, context: Context) {
         );
       }
       return NextResponse.json({
-        ticket: { ...ticket, citedChunkIds: parseCited(ticket.citedChunkIds) },
+        ticket: toSummary(ticket),
         events: ticket.events.map((event) => ({
           id: event.id,
           eventType: event.eventType,
@@ -61,25 +63,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json({
       businessId: business.id,
       count: tickets.length,
-      tickets: tickets.map((ticket) => ({
-        ticketId: ticket.id,
-        channel: ticket.channel,
-        customerName: ticket.customerName,
-        customerHandle: ticket.customerHandle,
-        customerQuery: ticket.customerQuery,
-        state: ticket.state,
-        specialistAssigned: ticket.specialistAssigned,
-        intent: ticket.intent,
-        sentiment: ticket.sentiment,
-        urgencyScore: ticket.urgencyScore,
-        confidenceScore: ticket.confidenceScore,
-        actionStatus: ticket.actionStatus,
-        routingRuleHit: ticket.routingRuleHit,
-        aiDraftOrReply: ticket.aiDraftOrReply,
-        citedChunkIds: parseCited(ticket.citedChunkIds),
-        createdAt: ticket.createdAt.toISOString(),
-        updatedAt: ticket.updatedAt.toISOString(),
-      })),
+      tickets: tickets.map(toSummary),
     });
   } catch (error) {
     return errorResponse(error);
@@ -141,6 +125,53 @@ function parseCited(raw: string): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * One ticket as the dashboard reads it. Built explicitly so the stored decision-sheet
+ * JSON never reaches the browser as an unparsed string, and so the shape cannot drift
+ * from `TicketSummary` by accident.
+ */
+function toSummary(ticket: {
+  id: string;
+  channel: string;
+  customerName: string;
+  customerHandle: string;
+  customerQuery: string;
+  state: string;
+  specialistAssigned: string;
+  intent: string;
+  sentiment: string;
+  urgencyScore: number;
+  confidenceScore: number;
+  actionStatus: string;
+  routingRuleHit: string;
+  aiDraftOrReply: string;
+  citedChunkIds: string;
+  decisionSheetJson: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): TicketSummary {
+  return {
+    ticketId: ticket.id,
+    channel: ticket.channel,
+    customerName: ticket.customerName,
+    customerHandle: ticket.customerHandle,
+    customerQuery: ticket.customerQuery,
+    state: ticket.state,
+    specialistAssigned: ticket.specialistAssigned,
+    intent: ticket.intent,
+    sentiment: ticket.sentiment,
+    urgencyScore: ticket.urgencyScore,
+    confidenceScore: ticket.confidenceScore,
+    actionStatus: ticket.actionStatus,
+    routingRuleHit: ticket.routingRuleHit,
+    aiDraftOrReply: ticket.aiDraftOrReply,
+    citedChunkIds: parseCited(ticket.citedChunkIds),
+    decisionSheet: parseStoredDecisionSheet(ticket.decisionSheetJson),
+    createdAt: ticket.createdAt.toISOString(),
+    updatedAt: ticket.updatedAt.toISOString(),
+  };
 }
 
 function safeParse(raw: string): unknown {
