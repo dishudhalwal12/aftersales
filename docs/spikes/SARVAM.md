@@ -214,8 +214,8 @@ brain was rebuilt.
    `business_name`, `business_type`, `business_description`, `business_address`,
    `products_services`, `opening_hours`, `weekly_holidays`, `supported_languages`, `faqs`,
    `appointment_policy`, `return_policy`, `escalation_email`, `escalation_phone`, `agent_tone`,
-   `agent_instructions`, `tool_search_url`. The prompt contains only placeholders — no business
-   names, prices or addresses.
+   `agent_instructions`, `uploaded_knowledge`, `tool_search_url`, `request_tool_url`. The prompt
+   contains only placeholders — no business names, prices or addresses).
 2. **On-start tool** — `POST <PUBLIC_WEBHOOK_BASE_URL>/api/voice/sarvam-context`, header
    `x-saram-token: <SARVAM_CONTEXT_TOKEN>`, body sends the call's `agent_id` and/or the
    `virtual_number` that received the call. Map every returned `variables.*` key onto the
@@ -228,8 +228,14 @@ brain was rebuilt.
 
 ### 11.5 Limits
 
-- Values are clipped server-side (1,500 characters for most prose, 2,500 for FAQs, 300 for the
-  address) so a large brain cannot break the Sarvam request.
+- Every variable is sized to the limit the onboarding API accepts for its field
+  (`src/shared/fact-limits.ts`), so a value the owner could type is never silently dropped. A row
+  that still exceeds its budget — older data, a direct DB edit — is clipped server-side and named in
+  the context route's `warnings`, so the cut is visible instead of quiet. Joined lists (holidays,
+  languages) and derived customization sentences keep their own 200 / 3,000 character budgets.
+- `uploaded_knowledge` carries the wizard's `.md` upload (20,000 character budget). The RAG tool
+  remains the retrieval path for it: the variable is context, the citation still comes from
+  `/api/voice/sarvam-tool-search`.
 - Uniqueness of `virtualNumber` / `agentId` is enforced by the resolver and the owner API, not
   by a DB constraint — the resolver must be able to see two rows and refuse the call. Two
   concurrent owner saves could still create a duplicate; the resulting calls fail closed (409).

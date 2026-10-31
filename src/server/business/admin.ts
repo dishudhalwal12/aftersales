@@ -70,6 +70,11 @@ export async function createBusinessForOwner(
             configJson: JSON.stringify({ mode: channel.status.toLowerCase() }),
           })),
         },
+        // The call-script row exists from the first save, so the voice context
+        // document is complete before a call. Identifiers stay null on purpose:
+        // one agent id or number may map to exactly one tenant, so the owner
+        // binds them from Dashboard → Voice rather than inheriting a shared one.
+        voiceAgentContext: { create: {} },
       },
     });
     return created;

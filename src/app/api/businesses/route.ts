@@ -8,6 +8,7 @@ import {
   requireUser,
 } from "../../../server/auth/tenant.ts";
 import { HttpError } from "../../../server/auth/tenant.ts";
+import { FACT_LIMITS } from "../../../shared/fact-limits.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -50,18 +51,27 @@ export async function POST(request: Request) {
     const user = await requireUser();
     const body = await readJson(request);
 
-    const name = requireString(body, "name", { max: 120 });
-    const businessType = requireString(body, "businessType", { max: 80 });
-    const description = requireString(body, "description", { max: 4000 });
-    const productsServices = requireString(body, "productsServices", { max: 8000 });
-    const hours = requireString(body, "hours", { max: 1000 });
-    const returnPolicy = requireString(body, "returnPolicy", { max: 4000 });
-    const faqs = requireString(body, "faqs", { max: 8000 });
-    const escalationEmail = requireString(body, "escalationEmail", { max: 200 });
-    const escalationPhone = requireString(body, "escalationPhone", { max: 40 });
-    const agentTone = requireString(body, "agentTone", { max: 200, optional: true });
+    const name = requireString(body, "name", { max: FACT_LIMITS.name });
+    const businessType = requireString(body, "businessType", { max: FACT_LIMITS.businessType });
+    const description = requireString(body, "description", { max: FACT_LIMITS.description });
+    const productsServices = requireString(body, "productsServices", {
+      max: FACT_LIMITS.productsServices,
+    });
+    const hours = requireString(body, "hours", { max: FACT_LIMITS.hours });
+    const returnPolicy = requireString(body, "returnPolicy", { max: FACT_LIMITS.returnPolicy });
+    const faqs = requireString(body, "faqs", { max: FACT_LIMITS.faqs });
+    const escalationEmail = requireString(body, "escalationEmail", {
+      max: FACT_LIMITS.escalationEmail,
+    });
+    const escalationPhone = requireString(body, "escalationPhone", {
+      max: FACT_LIMITS.escalationPhone,
+    });
+    const agentTone = requireString(body, "agentTone", {
+      max: FACT_LIMITS.agentTone,
+      optional: true,
+    });
     const rawMarkdownUpload = requireString(body, "rawMarkdownUpload", {
-      max: 20000,
+      max: FACT_LIMITS.rawMarkdownUpload,
       optional: true,
     });
 

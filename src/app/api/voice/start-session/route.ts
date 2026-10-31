@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../server/db.ts";
 import { placeOutboundCall, generateDemoPin, sarvamStatus } from "../../../../server/voice/sarvam.ts";
-import { loadVoiceAgentContext, voiceCallContext } from "../../../../server/voice/context.ts";
+import { loadVoiceAgentContext, voiceCallContextReport } from "../../../../server/voice/context.ts";
 import {
   buildCustomizationVariables,
   loadActiveCustomizations,
@@ -53,12 +53,14 @@ export async function POST(request: Request) {
       },
     });
 
+    const variables = voiceCallContextReport(business, contextRow, customizations);
+
     const call = await placeOutboundCall({
       phone: judgePhone,
       sessionId: session.id,
       businessName: business.name,
       demoPin,
-      variables: voiceCallContext(business, contextRow, customizations),
+      variables: variables.variables,
     });
 
     const status = callPlacementStatus(call, "initiated");
@@ -78,6 +80,9 @@ export async function POST(request: Request) {
       callMode: call.mode,
       callPlacementOk: call.ok,
       callPlacementReason: call.reason,
+      // A shortened variable is reported here too, so the call that was just
+      // placed is not the first place it becomes visible.
+      clippedVariables: variables.clipped.map((clip) => clip.variable),
       sarvamConfigured: sarvamStatus().configured,
       expiresAt: updated.expiresAt.toISOString(),
     });

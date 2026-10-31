@@ -7,7 +7,7 @@ import {
   loadVoiceAgentContext,
   parseTrustedIdentifiers,
   resolveCallBusiness,
-  voiceCallContext,
+  voiceCallContextReport,
 } from "../../../../server/voice/context.ts";
 import {
   buildCustomizationVariables,
@@ -66,6 +66,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const call = voiceCallContextReport(business, contextRow, customizationVariables);
+    for (const clip of call.clipped) {
+      warnings.push(
+        `variable "${clip.variable}" was shortened for the voice payload: ${clip.sourceCharacters} characters stored, ${clip.sentCharacters} sent.`,
+      );
+    }
+
     return NextResponse.json({
       // Kept for the existing session contract; null for identifier calls.
       sessionId: resolution.session?.id ?? null,
@@ -75,7 +82,7 @@ export async function POST(request: Request) {
       resolvedBy: resolution.resolvedBy,
       callMode: status.configured ? "live" : "dry_run",
       virtualNumber: status.virtualNumber,
-      variables: voiceCallContext(business, contextRow, customizationVariables),
+      variables: call.variables,
       context: composeVoiceContext(business, contextRow),
       customizations: {
         availability,

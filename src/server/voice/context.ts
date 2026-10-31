@@ -17,7 +17,8 @@ import type { Business, BusinessVoiceAgentContext } from "@prisma/client";
 import { prisma } from "../db.ts";
 import { HttpError } from "../auth/http-error.ts";
 import { chunkMarkdown, compileBrainMd } from "../ai/rag.ts";
-import { buildCallVariables, type VoiceCallContext } from "./sarvam.ts";
+import { buildCallVariablesWithReport, type CallVariablesReport, type VoiceCallContext } from "./sarvam.ts";
+import { FACT_LIMITS, VOICE_CONTEXT_LIMITS } from "../../shared/fact-limits.ts";
 import type { CustomizationVariables } from "./customizations.ts";
 import type { BusinessFacts } from "../../shared/domain.ts";
 
@@ -196,20 +197,6 @@ export function parseTrustedIdentifiers(body: Record<string, unknown>): {
 
 const REQUIRED_FACT_KEYS = ["name", "businessType", "description", "productsServices", "hours"] as const;
 
-const FACT_LIMITS: Readonly<Record<keyof BusinessFacts, number>> = {
-  name: 120,
-  businessType: 60,
-  description: 2_000,
-  productsServices: 4_000,
-  hours: 500,
-  returnPolicy: 2_000,
-  faqs: 8_000,
-  escalationEmail: 160,
-  escalationPhone: 40,
-  agentTone: 160,
-  rawMarkdownUpload: 40_000,
-};
-
 function readFactsPatch(body: Record<string, unknown>): Partial<BusinessFacts> {
   const patch: Partial<BusinessFacts> = {};
   for (const key of Object.keys(FACT_LIMITS) as Array<keyof BusinessFacts>) {
@@ -247,11 +234,11 @@ export function parseVoiceContextBody(body: Record<string, unknown>): ParsedVoic
 
   return {
     context: {
-      businessAddress: readText(body, "businessAddress", 300),
+      businessAddress: readText(body, "businessAddress", VOICE_CONTEXT_LIMITS.businessAddress),
       weeklyHolidays: readWeekdays(body["weeklyHolidays"]),
       supportedLanguages: readList(body["supportedLanguages"], "supportedLanguages", MAX_LANGUAGES, MAX_LANGUAGE_LENGTH),
-      appointmentPolicy: readText(body, "appointmentPolicy", 1_000),
-      agentInstructions: readText(body, "agentInstructions", 2_000),
+      appointmentPolicy: readText(body, "appointmentPolicy", VOICE_CONTEXT_LIMITS.appointmentPolicy),
+      agentInstructions: readText(body, "agentInstructions", VOICE_CONTEXT_LIMITS.agentInstructions),
       virtualNumber: readPhone(body["virtualNumber"]),
       agentId: readAgentId(body["agentId"]),
       isActive: isActive === undefined ? true : isActive,
@@ -345,6 +332,19 @@ export function voiceCallContext(
   row: BusinessVoiceAgentContext | null,
   customizations?: CustomizationVariables | null,
 ): Record<string, string> {
+  return voiceCallContextReport(business, row, customizations).variables;
+}
+
+/**
+ * Same payload plus every variable that had to be shortened. The context route
+ * turns these into `warnings`, so an owner learns that the agent hears less than
+ * they saved instead of finding out on a live call.
+ */
+export function voiceCallContextReport(
+  business: Business,
+  row: BusinessVoiceAgentContext | null,
+  customizations?: CustomizationVariables | null,
+): CallVariablesReport {
   const composed = composeVoiceContext(business, row);
   const callContext: VoiceCallContext = {
     businessAddress: composed.businessAddress,
@@ -353,7 +353,7 @@ export function voiceCallContext(
     appointmentPolicy: composed.appointmentPolicy,
     agentInstructions: composed.agentInstructions,
   };
-  return buildCallVariables(business, callContext, customizations ?? null);
+  return buildCallVariablesWithReport(business, callContext, customizations ?? null);
 }
 
 // ---------------------------------------------------------------------------

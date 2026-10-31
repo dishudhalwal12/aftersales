@@ -334,6 +334,8 @@ export interface VoiceSessionResponse {
   callMode: "live" | "dry_run";
   callPlacementOk: boolean;
   callPlacementReason: string;
+  /** Variables that had to be shortened for the Sarvam payload (empty when none). */
+  clippedVariables: string[];
   sarvamConfigured: boolean;
   expiresAt: string;
 }

@@ -12,6 +12,7 @@
 
 import { randomInt } from "node:crypto";
 import type { CustomizationVariables } from "./customizations.ts";
+import { FACT_LIMITS, VOICE_CONTEXT_LIMITS } from "../../shared/fact-limits.ts";
 
 export interface SarvamStatus {
   configured: boolean;
@@ -145,53 +146,112 @@ interface CallVariableBusiness {
   escalationEmail: string;
   escalationPhone: string;
   agentTone: string;
+  rawMarkdownUpload: string;
+}
+
+/** Joined lists and derived customization sentences have no stored column of their own. */
+const LIST_BUDGET = 200;
+const CUSTOMIZATION_BUDGET = 3_000;
+
+interface BudgetedValue {
+  value: string;
+  sourceCharacters: number;
+  clipped: boolean;
 }
 
 /**
  * Sarvam rejects oversized variables and truncating in the prompt is worse than
- * truncating here, where the cut is visible to the template author.
+ * truncating here, where the cut is visible to the template author and reported
+ * to the caller instead of being lost.
  */
-function clip(value: string, max = 1_500): string {
-  const text = value.trim();
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+function fitBudget(source: string, max: number): BudgetedValue {
+  const text = source.trim();
+  if (text.length <= max) {
+    return { value: text, sourceCharacters: text.length, clipped: false };
+  }
+  return {
+    value: `${text.slice(0, max - 1)}…`,
+    sourceCharacters: text.length,
+    clipped: true,
+  };
+}
+
+/** A variable that had to be shortened, so the loss is never silent. */
+export interface ClippedVoiceVariable {
+  variable: string;
+  sentCharacters: number;
+  sourceCharacters: number;
+}
+
+export interface CallVariablesReport {
+  variables: Record<string, string>;
+  clipped: ClippedVoiceVariable[];
 }
 
 /**
  * The per-call variables a Sarvam agent template receives (PRD §6, Phase 1).
- * Name, plan, hours and FAQs come from the business brain; address, holidays,
- * languages, appointment policy and agent instructions come from the
- * BusinessVoiceAgentContext row when one exists.
+ * Name, plan, hours, FAQs and the uploaded knowledge file come from the business
+ * brain; address, holidays, languages, appointment policy and agent instructions
+ * come from the BusinessVoiceAgentContext row when one exists.
+ *
+ * Budgets are the onboarding limits from `shared/fact-limits.ts`, so every value
+ * the owner could fill fits — any clipping happens only for data written before
+ * those limits existed, and it is reported in `clipped`.
  */
+export function buildCallVariablesWithReport(
+  business: CallVariableBusiness,
+  context?: VoiceCallContext | null,
+  customizations?: CustomizationVariables | null,
+): CallVariablesReport {
+  const baseUrl = (process.env.PUBLIC_WEBHOOK_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const clipped: ClippedVoiceVariable[] = [];
+  const values: Record<string, string> = { business_id: business.id };
+
+  const put = (variable: string, source: string, max: number): void => {
+    const fitted = fitBudget(source, max);
+    if (fitted.clipped) {
+      clipped.push({
+        variable,
+        sentCharacters: fitted.value.length,
+        sourceCharacters: fitted.sourceCharacters,
+      });
+    }
+    values[variable] = fitted.value;
+  };
+
+  put("business_name", business.name, FACT_LIMITS.name);
+  put("business_type", business.businessType, FACT_LIMITS.businessType);
+  put("business_description", business.description, FACT_LIMITS.description);
+  put("business_address", context?.businessAddress ?? "", VOICE_CONTEXT_LIMITS.businessAddress);
+  put("products_services", business.productsServices, FACT_LIMITS.productsServices);
+  put("opening_hours", business.hours, FACT_LIMITS.hours);
+  put("weekly_holidays", (context?.weeklyHolidays ?? []).join(", "), LIST_BUDGET);
+  put("supported_languages", (context?.supportedLanguages ?? []).join(", "), LIST_BUDGET);
+  put("faqs", business.faqs, FACT_LIMITS.faqs);
+  put("appointment_policy", context?.appointmentPolicy ?? "", VOICE_CONTEXT_LIMITS.appointmentPolicy);
+  put("return_policy", business.returnPolicy, FACT_LIMITS.returnPolicy);
+  put("escalation_email", business.escalationEmail, FACT_LIMITS.escalationEmail);
+  put("escalation_phone", business.escalationPhone, FACT_LIMITS.escalationPhone);
+  put("agent_tone", business.agentTone, FACT_LIMITS.agentTone);
+  put("agent_instructions", context?.agentInstructions ?? "", VOICE_CONTEXT_LIMITS.agentInstructions);
+  put("uploaded_knowledge", business.rawMarkdownUpload, FACT_LIMITS.rawMarkdownUpload);
+  values["tool_search_url"] = `${baseUrl}/api/voice/sarvam-tool-search`;
+  values["request_tool_url"] = `${baseUrl}/api/voice/sarvam-request`;
+
+  if (customizations !== null && customizations !== undefined) {
+    for (const [key, value] of Object.entries(customizations)) {
+      put(key, value, CUSTOMIZATION_BUDGET);
+    }
+  }
+
+  return { variables: values, clipped };
+}
+
+/** Backwards-compatible shape: the variables only. */
 export function buildCallVariables(
   business: CallVariableBusiness,
   context?: VoiceCallContext | null,
   customizations?: CustomizationVariables | null,
 ): Record<string, string> {
-  const values: Record<string, string> = {
-    business_id: business.id,
-    business_name: business.name,
-    business_type: business.businessType,
-    business_description: clip(business.description),
-    business_address: clip(context?.businessAddress ?? "", 300),
-    products_services: clip(business.productsServices),
-    opening_hours: clip(business.hours, 500),
-    weekly_holidays: clip((context?.weeklyHolidays ?? []).join(", "), 200),
-    supported_languages: clip((context?.supportedLanguages ?? []).join(", "), 200),
-    faqs: clip(business.faqs, 2_500),
-    appointment_policy: clip(context?.appointmentPolicy ?? "", 1_000),
-    return_policy: clip(business.returnPolicy, 1_500),
-    escalation_email: clip(business.escalationEmail, 160),
-    escalation_phone: clip(business.escalationPhone, 40),
-    agent_tone: business.agentTone,
-    agent_instructions: clip(context?.agentInstructions ?? "", 1_500),
-    tool_search_url: `${(process.env.PUBLIC_WEBHOOK_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api/voice/sarvam-tool-search`,
-    request_tool_url: `${(process.env.PUBLIC_WEBHOOK_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api/voice/sarvam-request`,
-  };
-
-  if (customizations !== null && customizations !== undefined) {
-    for (const [key, value] of Object.entries(customizations)) {
-      values[key] = clip(value, 3_000);
-    }
-  }
-  return values;
+  return buildCallVariablesWithReport(business, context, customizations).variables;
 }
