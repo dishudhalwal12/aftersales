@@ -26,6 +26,7 @@ import {
 import { IntegrationError } from "../../../../../server/integrations/errors.ts";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Starts the Gmail OAuth flow. No credential is ever posted by the frontend;
 // the owner approves access on Google and the backend receives the code.

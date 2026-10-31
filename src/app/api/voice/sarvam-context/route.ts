@@ -40,9 +40,32 @@ export async function POST(request: Request) {
     }
 
     const body = await readJson(request);
-    const { agentId, virtualNumber } = parseTrustedIdentifiers(body);
-    const sessionId = typeof body["sessionId"] === "string" ? body["sessionId"].trim() : "";
-    const demoPin = typeof body["demoPin"] === "string" ? body["demoPin"].trim() : "";
+    // Sarvam's on-start hook names the same values app_id / agent_phone_number.
+    // Accept both shapes so the dashboard tool works without a code deploy.
+    const metadata =
+      typeof body["metadata"] === "object" && body["metadata"] !== null
+        ? (body["metadata"] as Record<string, unknown>)
+        : {};
+    const normalized: Record<string, unknown> = {
+      ...body,
+      ...(body["agentId"] === undefined && typeof body["app_id"] === "string"
+        ? { agentId: body["app_id"] }
+        : {}),
+      ...(body["virtualNumber"] === undefined &&
+      (typeof body["agent_phone_number"] === "string" || typeof body["virtual_number"] === "string")
+        ? { virtualNumber: body["agent_phone_number"] ?? body["virtual_number"] }
+        : {}),
+      ...(body["sessionId"] === undefined && typeof metadata["session_id"] === "string"
+        ? { sessionId: metadata["session_id"] }
+        : {}),
+      ...(body["demoPin"] === undefined && typeof metadata["demo_pin"] === "string"
+        ? { demoPin: metadata["demo_pin"] }
+        : {}),
+    };
+    const { agentId, virtualNumber } = parseTrustedIdentifiers(normalized);
+    const sessionId =
+      typeof normalized["sessionId"] === "string" ? normalized["sessionId"].trim() : "";
+    const demoPin = typeof normalized["demoPin"] === "string" ? normalized["demoPin"].trim() : "";
 
     const resolution = await resolveCallBusiness({ agentId, virtualNumber, sessionId, demoPin });
     const business = await prisma.business.findUnique({ where: { id: resolution.businessId } });

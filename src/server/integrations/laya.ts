@@ -198,6 +198,7 @@ export async function fetchDecisionSheet(
       headers: {
         [LAYA_SECRET_HEADER]: config.secret,
         "content-type": "application/json",
+        "ngrok-skip-browser-warning": "true",
       },
       body: JSON.stringify({ message }),
       signal: controller.signal,

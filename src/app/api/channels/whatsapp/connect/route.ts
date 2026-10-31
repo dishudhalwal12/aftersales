@@ -15,6 +15,7 @@ import {
 } from "../../../../../server/integrations/whatsapp.ts";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Owner-initiated: verifies ownership, reuses the business's existing
 // connectionId (or mints one), asks the local service for a socket, and

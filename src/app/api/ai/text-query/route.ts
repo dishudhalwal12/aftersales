@@ -11,6 +11,7 @@ import {
 import type { TicketChannel } from "../../../../shared/domain.ts";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const CHANNELS: ReadonlySet<string> = new Set([
   "TEXT_MODAL",

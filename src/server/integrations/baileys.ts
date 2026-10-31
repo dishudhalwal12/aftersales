@@ -120,6 +120,7 @@ export async function probeBaileysService(
   try {
     const response = await fetchImpl(`${config.baseUrl}/health`, {
       method: "GET",
+      headers: { "ngrok-skip-browser-warning": "true" },
       signal: controller.signal,
       cache: "no-store",
     });
@@ -254,6 +255,7 @@ async function requestService(
       method: init.method,
       headers: {
         [BAILEYS_SECRET_HEADER]: config.secret,
+        "ngrok-skip-browser-warning": "true",
         ...(init.body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),

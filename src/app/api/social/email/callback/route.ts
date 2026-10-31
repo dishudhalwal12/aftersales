@@ -5,6 +5,7 @@ import { verifyOAuthState } from "../../../../../server/integrations/crypto.ts";
 import { oauthCallbackResponse } from "../../../../../server/integrations/redirect.ts";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Hard ceiling for the whole exchange+persist+profile round trip. Combined with
 // the per-request provider timeout this guarantees the popup gets a response.

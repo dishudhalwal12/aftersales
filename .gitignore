@@ -35,3 +35,6 @@ Thumbs.db
 
 # ─── Reference material (downloaded, never shipped) ────────────────────────
 landingpage.it/
+.vercel
+.env.local
+.env.production.local

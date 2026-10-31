@@ -12,6 +12,7 @@
 
 import { randomInt } from "node:crypto";
 import type { CustomizationVariables } from "./customizations.ts";
+import { resolvePublicOrigin } from "../integrations/base-url.ts";
 import { FACT_LIMITS, VOICE_CONTEXT_LIMITS } from "../../shared/fact-limits.ts";
 
 export interface SarvamStatus {
@@ -78,21 +79,49 @@ export async function placeOutboundCall(input: OutboundCallInput): Promise<Outbo
   }
 
   try {
+    const connectionId = (process.env.SARVAM_CONNECTION_ID ?? "").trim();
+    if (connectionId.length === 0) {
+      return {
+        mode: "live",
+        ok: false,
+        interactionId: null,
+        reason: "SARVAM_CONNECTION_ID is not set — copy it from the Sarvam phone-number connection.",
+      };
+    }
+
+    const baseUrl = resolvePublicOrigin(process.env.PUBLIC_WEBHOOK_BASE_URL);
+    const webhookToken = (process.env.SARVAM_WEBHOOK_TOKEN ?? "").trim();
+    const appVersion = Number(process.env.SARVAM_APP_VERSION ?? "1");
     const response = await fetch((process.env.SARVAM_CALL_ENDPOINT ?? "").trim(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "api-subscription-key": (process.env.SARVAM_API_KEY ?? "").trim(),
+        "X-API-Key": (process.env.SARVAM_API_KEY ?? "").trim(),
       },
       body: JSON.stringify({
-        phone_number: input.phone,
-        agent_id: (process.env.SARVAM_AGENT_ID ?? "").trim() || undefined,
-        metadata: {
-          session_id: input.sessionId,
-          business_name: input.businessName,
-          demo_pin: input.demoPin,
-          ...input.variables,
+        app_config: {
+          app_id: (process.env.SARVAM_AGENT_ID ?? "").trim(),
+          app_version: Number.isFinite(appVersion) && appVersion > 0 ? appVersion : 1,
+          connection_config: {
+            connection_id: connectionId,
+            agent_phone_number: (process.env.SARVAM_VIRTUAL_NUMBER ?? "").trim(),
+          },
+          agent_variables: {
+            session_id: input.sessionId,
+            business_name: input.businessName,
+            demo_pin: input.demoPin,
+            ...input.variables,
+          },
         },
+        user_config: { user_phone_number: input.phone },
+        ...(webhookToken.length > 0
+          ? {
+              webhook_config: {
+                url: `${baseUrl}/api/voice/sarvam-webhook?token=${encodeURIComponent(webhookToken)}`,
+                metadata: { session_id: input.sessionId, business_id: input.variables.business_id },
+              },
+            }
+          : {}),
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -108,11 +137,13 @@ export async function placeOutboundCall(input: OutboundCallInput): Promise<Outbo
 
     const body = (await response.json()) as Record<string, unknown>;
     const interactionId =
-      typeof body["interaction_id"] === "string"
-        ? body["interaction_id"]
-        : typeof body["id"] === "string"
-          ? body["id"]
-          : null;
+      typeof body["attempt_id"] === "string"
+        ? body["attempt_id"]
+        : typeof body["interaction_id"] === "string"
+          ? body["interaction_id"]
+          : typeof body["id"] === "string"
+            ? body["id"]
+            : null;
 
     return {
       mode: "live",
@@ -203,7 +234,7 @@ export function buildCallVariablesWithReport(
   context?: VoiceCallContext | null,
   customizations?: CustomizationVariables | null,
 ): CallVariablesReport {
-  const baseUrl = (process.env.PUBLIC_WEBHOOK_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const baseUrl = resolvePublicOrigin(process.env.PUBLIC_WEBHOOK_BASE_URL);
   const clipped: ClippedVoiceVariable[] = [];
   const values: Record<string, string> = { business_id: business.id };
 

@@ -4,6 +4,7 @@ import { assertCronSecret } from "../../../../../server/integrations/cron.ts";
 import { pollConnectedEmailInboxes } from "../../../../../server/integrations/email.ts";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // Call from Vercel Cron (or any scheduler) with the CRON_SECRET. Polls every
 // connected mailbox, runs the shared triage pipeline, and replies in-thread.
