@@ -146,7 +146,7 @@ export function ChannelsPanel({
 
         <div className="glass channel-card">
           <div className="channel-title">
-            <b style={{ fontSize: 14 }}>Sarvam voice</b>
+            <b style={{ fontSize: 14 }}>AI Calling Agent</b>
             <span className={`badge ${sarvamConfigured ? "badge-sent" : "badge-draft"}`}>
               {sarvamConfigured ? "connected" : "test mode"}
             </span>
