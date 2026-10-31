@@ -15,13 +15,14 @@ export default async function OnboardingPage() {
   const existing = await prisma.business.count({ where: { ownerId: user.id } });
 
   return (
-    <div style={{ minHeight: "100dvh" }}>
-      <header className="nav">
-        <div className="wrap nav-inner">
-          <Link href="/" aria-label="AfterSales AI home">
+    <div>
+      <header className="topbar">
+        <div className="wrap topbar-inner">
+          <Link href="/" className="topbar-brand" aria-label="AfterSales AI home">
             <Logo />
           </Link>
-          <div className="nav-links">
+
+          <div className="topbar-actions">
             <span className="tiny muted">{user.email}</span>
             {existing > 0 && (
               <Link href="/dashboard" className="btn btn-sm">
@@ -32,16 +33,35 @@ export default async function OnboardingPage() {
         </div>
       </header>
 
-      <main className="wrap" style={{ padding: "34px 24px 60px" }}>
-        <div style={{ marginBottom: 22, maxWidth: 720 }}>
-          <p className="eyebrow">Onboarding</p>
-          <h1 style={{ fontSize: 30, marginTop: 6 }}>Install your business into the agent</h1>
-          <p className="muted" style={{ marginTop: 8 }}>
-            Four short steps. What you type here becomes the only facts the agent is allowed to answer
-            with — anything outside it escalates instead of being guessed.
-          </p>
-        </div>
+      <div className="wrap">
+        <section className="page-head">
+          <div>
+            <p className="eyebrow">Onboarding · one compiled brain</p>
+            <h1 className="page-title">Install your business into the agent</h1>
+            <p className="page-lede">
+              Four short steps. What you type here becomes the only facts the agent is allowed to
+              answer with — anything outside it escalates instead of being guessed.
+            </p>
+          </div>
 
+          <div className="page-meta">
+            <div>
+              <b>4</b>
+              <span>steps</span>
+            </div>
+            <div>
+              <b>1</b>
+              <span>compile</span>
+            </div>
+            <div>
+              <b>0</b>
+              <span>guesses</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <main className="wrap onboard">
         <OnboardingWizard
           presets={PRESETS.map((preset) => ({ label: preset.label, facts: preset.business.facts }))}
         />

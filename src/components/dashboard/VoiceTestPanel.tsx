@@ -120,8 +120,9 @@ export function VoiceTestPanel({
     <div>
       <div className="panel-head">
         <div>
+          <p className="eyebrow">02 — Voice</p>
           <h2>Voice test</h2>
-          <p className="tiny muted" style={{ marginTop: 4 }}>
+          <p className="panel-lede">
             One rented number, per-call business context. The session binds your phone and a 4-digit
             PIN to {businessName} for ten minutes.
           </p>
@@ -143,12 +144,10 @@ export function VoiceTestPanel({
           style={{ marginBottom: 16 }}
           data-last-call={lastSession.sessionId}
         >
-          <div className="panel-head" style={{ marginBottom: 8 }}>
+          <div className="panel-head" style={{ marginBottom: 14 }}>
             <div>
               <p className="eyebrow">Last call · {timeAgo(lastSession.createdAt)}</p>
-              <h3 style={{ marginTop: 4, fontSize: 16 }}>
-                {lastSession.status === "failed" ? "Call failed" : "Completed call"}
-              </h3>
+              <h3>{lastSession.status === "failed" ? "Call failed" : "Completed call"}</h3>
             </div>
             <span
               className={`badge ${
@@ -286,7 +285,7 @@ export function VoiceTestPanel({
             </div>
 
             {lookup !== null && (
-              <div className="glass panel-tight fade-in" style={{ marginTop: 12, background: "#fff" }}>
+              <div className="glass panel-tight fade-in" style={{ marginTop: 12 }}>
                 <div className="row-between" style={{ flexWrap: "wrap", gap: 8 }}>
                   <span className="badge badge-neutral">{lookup.businessName}</span>
                   <span className={`badge ${lookup.escalateToHuman ? "badge-esc" : "badge-sent"}`}>

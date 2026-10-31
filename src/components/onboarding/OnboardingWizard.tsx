@@ -120,13 +120,15 @@ export function OnboardingWizard({
             data-done={index < step}
             onClick={() => setStep(index)}
           >
-            <span className="step-badge">{index < step ? "✓" : index + 1}</span>
+            <span className="step-badge">
+              {index < step ? "✓" : String(index + 1).padStart(2, "0")}
+            </span>
             <span>{title}</span>
           </button>
         ))}
 
-        <div className="glass panel-tight" style={{ marginTop: 12, fontSize: 12 }}>
-          <p className="eyebrow" style={{ marginBottom: 6 }}>
+        <div className="wizard-presets">
+          <p className="eyebrow" style={{ marginBottom: 10 }}>
             Need a shortcut?
           </p>
           {presets.map((preset) => (
@@ -134,7 +136,7 @@ export function OnboardingWizard({
               key={preset.label}
               type="button"
               className="btn btn-sm"
-              style={{ width: "100%", marginBottom: 6, justifyContent: "flex-start" }}
+              style={{ width: "100%" }}
               onClick={() => {
                 setFacts(preset.facts);
                 setStep(0);
@@ -146,9 +148,9 @@ export function OnboardingWizard({
         </div>
       </div>
 
-      <div className="glass panel">
+      <div className="glass wizard-card">
         <p className="eyebrow">Step {step + 1} of 4</p>
-        <h2 style={{ fontSize: 22, marginTop: 4, marginBottom: 16 }}>{STEP_TITLES[step]}</h2>
+        <h2>{STEP_TITLES[step]}</h2>
 
         {step === 0 && (
           <div className="stack">
@@ -303,9 +305,11 @@ export function OnboardingWizard({
         {step === 3 && (
           <div className="stack">
             {CHANNELS.map(([name, status, note]) => (
-              <div className="glass panel-tight" key={name} style={{ background: "#fff" }}>
+              <div className="glass channel-card" key={name}>
                 <div className="row-between">
-                  <b style={{ fontSize: 14 }}>{name}</b>
+                  <b style={{ fontSize: 13, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {name}
+                  </b>
                   <span className="badge badge-draft">{status}</span>
                 </div>
                 <p className="tiny muted" style={{ marginTop: 4 }}>
@@ -327,13 +331,9 @@ export function OnboardingWizard({
           </p>
         )}
 
-        {stepError !== null && step < 3 && (
-          <p className="tiny muted" style={{ marginTop: 12 }}>
-            {stepError}
-          </p>
-        )}
+        {stepError !== null && step < 3 && <p className="wizard-hint">{stepError}</p>}
 
-        <div className="row-between" style={{ marginTop: 20 }}>
+        <div className="row-between" style={{ marginTop: 24 }}>
           <button
             type="button"
             className="btn btn-ghost"

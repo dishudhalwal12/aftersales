@@ -83,8 +83,8 @@ export function AiTextModal({
         <div className="modal-head">
           <div>
             <p className="eyebrow">Test my AI agent</p>
-            <h2 style={{ fontSize: 22, marginTop: 4 }}>{businessName}</h2>
-            <p className="tiny muted" style={{ marginTop: 4 }}>
+            <h2>{businessName}</h2>
+            <p className="panel-lede">
               Same pipeline as every channel: retrieve → classify → R1–R7 → ticket.
             </p>
           </div>
@@ -181,13 +181,15 @@ export function AiTextModal({
               {result.routingRuleHit} · {RULE_COPY[result.routingRuleHit] ?? ""}
             </p>
 
-            <div className="grid-2" style={{ marginTop: 12, gap: 16 }}>
+            <div className="grid-2" style={{ marginTop: 16, gap: 20 }}>
               <div>
-                <p className="tiny muted">Confidence</p>
+                <p className="eyebrow" style={{ marginBottom: 8 }}>Confidence</p>
                 <ConfidenceMeter value={result.confidenceScore} actionStatus={result.actionStatus} />
               </div>
               <div>
-                <p className="tiny muted">Urgency · {result.urgencyScore}/100</p>
+                <p className="eyebrow" style={{ marginBottom: 8 }}>
+                  Urgency · {result.urgencyScore}/100
+                </p>
                 <div className={`meter ${result.urgencyScore >= 80 ? "meter-esc" : "meter-draft"}`}>
                   <span style={{ width: `${Math.max(2, result.urgencyScore)}%` }} />
                 </div>
@@ -201,8 +203,8 @@ export function AiTextModal({
               classifierSentiment={result.sentiment}
             />
 
-            <div className="glass panel-tight" style={{ marginTop: 14, background: "#fff" }}>
-              <p className="eyebrow" style={{ marginBottom: 6 }}>
+            <div className="answer-block">
+              <p className="eyebrow">
                 {result.actionStatus === "answered"
                   ? "Sent to customer"
                   : result.actionStatus === "draft"
@@ -211,7 +213,7 @@ export function AiTextModal({
                       ? "Classifier failed — nothing sent"
                       : "Escalated to a human"}
               </p>
-              <p style={{ fontSize: 14 }}>{result.answer}</p>
+              <p>{result.answer}</p>
             </div>
 
             <p className="eyebrow" style={{ marginTop: 16, marginBottom: 4 }}>

@@ -103,8 +103,9 @@ export function ChannelsPanel({
     <div>
       <div className="panel-head">
         <div>
+          <p className="eyebrow">04 — Channels</p>
           <h2>Channels</h2>
-          <p className="tiny muted" style={{ marginTop: 4 }}>
+          <p className="panel-lede">
             Truthful connection state per channel. A channel can be simulated before it is connected —
             the label says which one it is.
           </p>
@@ -173,6 +174,7 @@ export function ChannelsPanel({
               type="button"
               className="chip"
               data-active={provider === entry.key}
+              aria-pressed={provider === entry.key}
               onClick={() => setProvider(entry.key)}
             >
               {entry.label}
