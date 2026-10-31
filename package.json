@@ -27,6 +27,7 @@
     "db:setup": "prisma db push && prisma db seed",
     "db:reset": "prisma db push --force-reset && prisma db seed",
     "verify:phase4": "node --env-file-if-exists=.env scripts/verify-phase4.mjs",
+    "verify:weekly": "node --env-file-if-exists=.env scripts/verify-weekly-report.mjs",
     "env:check": "node --env-file-if-exists=.env scripts/check-env.mjs"
   },
   "prisma": {

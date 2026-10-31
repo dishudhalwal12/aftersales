@@ -74,7 +74,7 @@ npm run dev:services # only Laya + Baileys, against an app you started yourself
 npm run dev -- --no-laya        # skip one service
 npm run dev -- --no-baileys
 
-npm test             # 365 tests, native runner, no test dependencies
+npm test             # 410 tests, native runner, no test dependencies
 npm run typecheck    # tsc --noEmit, strict + exactOptionalPropertyTypes
 npm run build        # production build (see "Known limits" for the Windows prerender issue)
 npm run env:check    # which keys are set / missing (never prints values)
@@ -82,6 +82,7 @@ npm run verify:hydration # headless Chrome: browser extensions cannot break hydr
 npm run verify:phase1 # boots the app and asserts the Phase 1 gate over HTTP
 npm run verify:phase3 # boots the app and asserts the Phase 3 channel gate over HTTP + DB
 npm run verify:phase4 # boots the app and asserts the voice gate over HTTP + the DB
+npm run verify:weekly # boots the app and asserts the automatic weekly report over HTTP + DB
 npm run db:reset     # wipe and re-seed
 ```
 
@@ -114,13 +115,40 @@ the form).
 
 ---
 
+## The bonus twist: sentiment tracking + the weekly report
+
+Sentiment is tracked two ways from the same `Ticket.sentiment` rows:
+
+- **Rolling** — a 0–100 index (`positive` 100 … `distressed` 0) over the last 7 days, compared with
+  the 7 days before it, plus each day's negative share. It sits at the top of *Business brain & insights*.
+- **Weekly** — one report per **completed ISO week** (Mon 00:00 UTC → next Mon 00:00 UTC), persisted in
+  `WeeklyInsightReport` under a unique `(businessId, weekStart)`. It ranks recurring complaints
+  (repeated **and** negative or escalated) with week-over-week deltas: `new`, `rising`, `cooling`,
+  `steady`.
+
+Both generation paths converge on the same row:
+
+| Path | Trigger | Why it exists |
+|---|---|---|
+| `GET /api/businesses/[id]/insights` | first owner view after the week closes (`trigger: "lazy"`) | works with no scheduler configured |
+| `GET\|POST /api/cron/weekly-insights` | `vercel.json`, Mondays 00:05 UTC, `Authorization: Bearer $CRON_SECRET` (`trigger: "cron"`) | runs with nobody watching |
+
+A completed week is an immutable snapshot: a retried cron or a second read never duplicates the row or
+moves `generatedAt`. The report is delivered in the dashboard and over the API; **email delivery is not
+claimed** — the only mail transport here is the owner's connected Gmail. `npm run verify:weekly` boots
+the app, seeds an isolated tenant with backdated tickets, and proves both paths, snapshot immutability and the dashboard surface against real rows.
+
+---
+
 ## What is real vs what is mocked
 
 **This table is the source of truth. A row may say REAL only if a test, an API call or a screenshot is
-behind it.** Last verified: **2026-10-31 — `npm test` (224 tests) and `npm run typecheck` on Node
-24.22.1 / Windows. `npm run build` compiles and prerenders under `--debug-prerender`; the plain
-production build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on a stock app (see
-"Known limits").**
+behind it.** Last verified: **2026-10-31 — `npm test` (410 tests), `npm run typecheck`,
+`npm run build` and `npm run verify:weekly` (43/43, isolated database) on Node 26.5.0.
+`npm run verify:phase3` reports 83/85 with `LLM_PROVIDER=heuristic` and `AUTH_SECRET` set: its trail
+assertions still expect 4 events while the delivery path now writes a fifth (`DECISION_SHEET_*`) —
+pre-existing on `main` and unrelated to the weekly report. The plain production build hits a Next.js
+16.4.3 `/_global-error` crash on some machines (see "Known limits").**
 
 | Capability | Status | What is behind it |
 |---|---|---|
@@ -132,7 +160,7 @@ production build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on
 | Approve draft / resolve escalation | **REAL** | human-only exits; the agent has no `escalated → replied` path |
 | Webhook idempotency | **REAL** | unique `(businessId, externalMessageId)`; replay returns the same `ticketId` with `duplicate: true`, and the same id under another tenant is that tenant's own ticket |
 | Provider-signed inbound edge | **REAL** | `x-channel-token` matching `CHANNEL_WEBHOOK_SECRET` delivers without a browser session; an unknown `businessId` is `404` |
-| Weekly sentiment + recurring complaints | **REAL** | `src/server/business/insights.ts`, 9 aggregation tests |
+| Sentiment trend + automatic weekly report | **REAL** | `weekly-report.ts` (30 engine tests), `weekly-report-store.ts` (12 store tests) and the display policy (3 tests): one report per completed ISO week, persisted idempotently on `(businessId, weekStart)` and never overwritten once written, generated lazily on first view and by the secret-gated weekly cron; `npm run verify:weekly` proves both paths on real rows (43 checks) |
 | Voice session, PIN binding, mid-call retrieval, write-back | **REAL** | `start-session` → `sarvam-tool-search` → `sarvam-webhook` |
 | LLM classifier | **CONDITIONAL** | OpenRouter when `OPENROUTER_API_KEY` is set; otherwise a labelled **offline** retrieval classifier |
 | The offline classifier | **REAL, LABELLED** | BM25 coverage score, extractive answers. The dashboard shows a persistent banner and the API returns `degraded: true` |
@@ -203,7 +231,8 @@ Full diagrams, data model and trust boundaries: [`docs/ARCHITECTURE.md`](docs/AR
 | `POST /api/businesses` | save onboarding, compile brain + chunks (201) |
 | `GET/PATCH /api/businesses/[id]/brain` | read chunks / edit markdown and bump the version |
 | `GET/PATCH /api/businesses/[id]/tickets` | queue, one ticket with events, human actions |
-| `GET /api/businesses/[id]/insights` | weekly sentiment + recurring complaints |
+| `GET /api/businesses/[id]/insights` | rolling sentiment trend + the persisted completed-week report (materialised lazily when missing) |
+| `GET/POST /api/cron/weekly-insights` | secret-gated sweep that finalises the completed week for every business (Vercel Cron, Mondays 00:05 UTC) |
 | `POST /api/ai/text-query` | text modal + queue responder (PRD §5.2 shape) |
 | `POST /api/channels/webhook/[provider]` | inbound edge with tenant-scoped `externalMessageId` idempotency; owner session or `x-channel-token` |
 | `GET /api/social/email/status`, `POST …/connect`, `POST …/disconnect` | Gmail link state, OAuth URL, revoke + clear |
@@ -248,7 +277,7 @@ Copy `.env.example` to `.env`. Every key has a truthful degraded path, so an emp
 | `INTEGRATION_STATE_SECRET` | falls back to `AUTH_SECRET`; without either, OAuth cannot start |
 | `INTEGRATIONS_BASE_URL` | the request origin is used to build redirect URIs (fine locally, set it when tunnelled) |
 | `EMAIL_GMAIL_CLIENT_ID` + `_SECRET` | the Gmail card reports itself unconfigured |
-| `CRON_SECRET` | `GET /api/social/email/poll` answers `503`; nothing polls in the background |
+| `CRON_SECRET` | `GET /api/social/email/poll` and `/api/cron/weekly-insights` answer `503`; nothing polls or reports on a schedule |
 | `META_APP_ID` + `META_APP_SECRET` | the Meta cards report themselves unconfigured |
 | `META_WEBHOOK_VERIFY_TOKEN` | Meta's GET handshake fails closed |
 | `BAILEYS_SERVICE_URL` + `BAILEYS_SERVICE_SECRET` | the WhatsApp card is unavailable; its callbacks stay `503` |

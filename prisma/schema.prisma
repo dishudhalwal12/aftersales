@@ -51,6 +51,7 @@ model Business {
   channels         ChannelConnection[]
   tickets          Ticket[]
   voiceSessions    VoiceTestSession[]
+  weeklyReports    WeeklyInsightReport[]
 }
 
 model KnowledgeChunk {
@@ -140,4 +141,38 @@ model VoiceTestSession {
 
   @@index([businessId])
   @@index([judgePhone, status])
+}
+
+// One immutable snapshot per business per completed ISO week. The unique pair is
+// the idempotency key: the lazy read path, a retried cron, or two concurrent
+// requests all converge on the same row. `payloadJson` carries the full report
+// (daily series + complaint deltas); the columns are the queryable summary.
+model WeeklyInsightReport {
+  id                 String   @id @default(cuid())
+  businessId         String
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  weekStart          DateTime
+  weekEnd            DateTime
+  generatedAt        DateTime @default(now())
+  trigger            String
+  totalTickets       Int
+  autoAnswered       Int
+  drafts             Int
+  escalated          Int
+  failed             Int
+  escalationRate     Int
+  autoAnswerRate     Int
+  positive           Int
+  neutral            Int
+  frustrated         Int
+  distressed         Int
+  sentimentScore     Int
+  previousScore      Int?
+  sentimentTrend     String
+  topComplaintIntent String?
+  topComplaintCount  Int      @default(0)
+  payloadJson        String
+
+  @@unique([businessId, weekStart])
+  @@index([businessId, weekStart])
 }
