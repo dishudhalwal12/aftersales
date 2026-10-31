@@ -11,9 +11,15 @@ import { prisma } from "../db.ts";
 import { classifyAndDraft, type LlmProvider } from "../ai/orchestrator.ts";
 import { searchMarkdownRag } from "../ai/rag.ts";
 import { evaluateRoutingRules } from "../ai/routing.ts";
+import {
+  fetchDecisionSheet,
+  parseStoredDecisionSheet,
+} from "../integrations/laya.ts";
 import type {
   ActionStatus,
   BrainChunk,
+  DecisionSheet,
+  DecisionSheetFailure,
   LlmResponse,
   RetrievedChunk,
   RuleId,
@@ -53,6 +59,10 @@ export interface RespondResult {
   degraded: boolean;
   duplicate: boolean;
   classifierError: string | null;
+  /** Advisory typed decisions; null when the local model did not answer. */
+  decisionSheet: DecisionSheet | null;
+  /** Why there is no sheet, when there is none. */
+  decisionSheetError: DecisionSheetFailure | null;
 }
 
 const FAILURE_REPLY =
@@ -121,25 +131,33 @@ export async function respondToContact(
   const chunks = await loadBusinessChunks(contact.business.id);
   const retrieved = searchMarkdownRag(chunks, contact.query, 4);
 
-  const orchestration = overrides.runtimeError === true
-    ? ({ ok: false, provider: "heuristic", error: "runtime failure injected" } as const)
-    : await classifyAndDraft({
-        business: {
-          name: contact.business.name,
-          businessType: contact.business.businessType,
-          description: contact.business.description,
-          productsServices: contact.business.productsServices,
-          hours: contact.business.hours,
-          returnPolicy: contact.business.returnPolicy,
-          faqs: contact.business.faqs,
-          escalationEmail: contact.business.escalationEmail,
-          escalationPhone: contact.business.escalationPhone,
-          agentTone: contact.business.agentTone,
-          rawMarkdownUpload: contact.business.rawMarkdownUpload,
-        },
-        query: contact.query,
-        retrieved,
-      });
+  // The classifier and the local decision model are independent, so they run together:
+  // the sheet then costs no wall-clock time on top of triage. `fetchDecisionSheet`
+  // resolves a reason instead of throwing, and routing never reads its answer.
+  const [orchestration, decisionSheet] = await Promise.all([
+    overrides.runtimeError === true
+      ? Promise.resolve(
+          { ok: false, provider: "heuristic", error: "runtime failure injected" } as const,
+        )
+      : classifyAndDraft({
+          business: {
+            name: contact.business.name,
+            businessType: contact.business.businessType,
+            description: contact.business.description,
+            productsServices: contact.business.productsServices,
+            hours: contact.business.hours,
+            returnPolicy: contact.business.returnPolicy,
+            faqs: contact.business.faqs,
+            escalationEmail: contact.business.escalationEmail,
+            escalationPhone: contact.business.escalationPhone,
+            agentTone: contact.business.agentTone,
+            rawMarkdownUpload: contact.business.rawMarkdownUpload,
+          },
+          query: contact.query,
+          retrieved,
+        }),
+    fetchDecisionSheet(contact.query),
+  ]);
 
   const provider: LlmProvider = orchestration.provider;
   const degraded = orchestration.ok ? orchestration.degraded : false;
@@ -167,6 +185,9 @@ export async function respondToContact(
     ? llmResult.reply_text
     : FAILURE_REPLY;
 
+  const sheet: DecisionSheet | null = decisionSheet.ok ? decisionSheet.sheet : null;
+  const sheetError: DecisionSheetFailure | null = decisionSheet.ok ? null : decisionSheet.reason;
+
   try {
     const ticket = await prisma.$transaction(async (tx) => {
       const row = await tx.ticket.create({
@@ -187,6 +208,7 @@ export async function respondToContact(
           routingRuleHit: decision.ruleHit,
           aiDraftOrReply: answer,
           citedChunkIds: JSON.stringify(sources.map((source) => source.chunkId)),
+          decisionSheetJson: sheet === null ? "" : JSON.stringify(sheet),
         },
       });
 
@@ -210,6 +232,30 @@ export async function respondToContact(
             provider,
             degraded,
           }),
+        },
+      });
+      await tx.ticketEvent.create({
+        data: {
+          ticketId: row.id,
+          eventType: sheet === null ? "DECISION_SHEET_UNAVAILABLE" : "DECISION_SHEET_COMPUTED",
+          payload: JSON.stringify(
+            sheet !== null
+              ? {
+                  provider: sheet.provider,
+                  model: sheet.model,
+                  sheetVersion: sheet.sheetVersion,
+                  latencyMs: sheet.latencyMs,
+                  decisions: sheet.decisions.map((decision) => ({
+                    id: decision.id,
+                    verdict: decision.verdict,
+                    probability: decision.probability,
+                  })),
+                }
+              : {
+                  reason: decisionSheet.ok ? null : decisionSheet.reason,
+                  message: decisionSheet.ok ? null : decisionSheet.message,
+                },
+          ),
         },
       });
       await tx.ticketEvent.create({
@@ -272,6 +318,8 @@ export async function respondToContact(
       degraded,
       duplicate: false,
       classifierError: orchestration.ok ? null : orchestration.error,
+      decisionSheet: sheet,
+      decisionSheetError: sheetError,
     };
   } catch (error) {
     // AT-10: the unique index on (businessId, externalMessageId) is the idempotency key.
@@ -329,5 +377,7 @@ function toDuplicateResult(
     degraded,
     duplicate: true,
     classifierError: null,
+    decisionSheet: parseStoredDecisionSheet(ticket.decisionSheetJson),
+    decisionSheetError: null,
   };
 }

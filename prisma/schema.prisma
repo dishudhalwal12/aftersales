@@ -100,6 +100,10 @@ model Ticket {
   routingRuleHit     String
   aiDraftOrReply     String
   citedChunkIds      String
+  // ADDITIVE (not in PRD §3): the advisory decision sheet from the local Laya model,
+  // stored as the JSON the service returned. Empty string means the service was
+  // unavailable when this ticket was triaged; routing never reads this column.
+  decisionSheetJson  String        @default("")
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   events             TicketEvent[]

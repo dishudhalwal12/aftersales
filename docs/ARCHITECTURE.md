@@ -56,6 +56,33 @@ round-trip so the answer lands inside the caller's turn.
 
 ## The decision surface
 
+The classifier decides four fields; the router disposes. Separately, an **advisory** decision sheet is
+computed at intake by the local Laya model (`laya-service/`, Apple silicon + MLX) and stored on the
+ticket. It answers eight constrained questions about the same message — needs attention within the
+hour, graded urgency, intent, frustration, human asked for, sensitive case, money asked back, churn
+risk — and is rendered beside the classifier's numbers.
+
+```mermaid
+sequenceDiagram
+  participant API as respondToContact
+  participant CLS as classifier
+  participant LAYA as laya-service :8100
+  participant DB as tickets
+
+  API->>CLS: query + retrieved chunks (parallel)
+  API->>LAYA: POST /decision-sheet {message}
+  CLS-->>API: 4 fields + draft
+  LAYA-->>API: 8 typed decisions (or a reason there are none)
+  API->>DB: ticket + decisionSheetJson + DECISION_SHEET_* event
+  Note over API: R1–R7 reads the classifier only.
+```
+
+It is advisory on purpose. The sheet is a column (`Ticket.decisionSheetJson`), it appears in the
+event trail, and it is displayable evidence — but no routing rule reads it, so a sleeping or wrong
+model costs a ticket its second opinion and nothing else. A failure is recorded as
+`DECISION_SHEET_UNAVAILABLE` with a reason (`not_configured`, `unreachable`, `timeout`, `rejected`,
+`invalid_response`) instead of leaving a blank panel.
+
 `confidence_score` and `urgency` are integers 0–100. First match wins.
 
 | Rule | Condition | Outcome | Why it exists |
@@ -76,7 +103,7 @@ Two invariants are structural, not policy comments:
 
 ## Data model
 
-SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant scoping.
+Postgres via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant scoping.
 
 | Entity | Holds | Note |
 |---|---|---|
@@ -84,7 +111,7 @@ SQLite via Prisma (`prisma/schema.prisma`), five entities plus join-free tenant 
 | `Business` | facts, `compiledBrainMd`, `brainVersion` | one row per tenant; `ownerId` is the boundary |
 | `KnowledgeChunk` | `section`, `content`, `keywords`, `chunkIndex` | derived from the markdown; rebuilt on every save |
 | `ChannelConnection` | `channelType`, `status`, `autoSend` | `DRAFT_ONLY` ⇒ R5 |
-| `Ticket` | channel, customer ref, state, the four fields, rule, answer, citations | `(businessId, externalMessageId)` **unique per business** = idempotency |
+| `Ticket` | channel, customer ref, state, the four fields, rule, answer, citations | `(businessId, externalMessageId)` **unique per business** = idempotency; `decisionSheetJson` holds the advisory Laya sheet |
 | `TicketEvent` | type + JSON payload | append-only; the drawer renders a summary per type |
 | `VoiceTestSession` | `demoPin`, `judgePhone`, status, transcript, expiry | 10-minute TTL, one business per session |
 

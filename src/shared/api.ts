@@ -1,6 +1,13 @@
 /** Response shapes shared by the API routes and the dashboard components. */
 
-import type { ActionStatus, RuleId, Sentiment, Specialist } from "./domain.ts";
+import type {
+  ActionStatus,
+  DecisionSheet,
+  DecisionSheetFailure,
+  RuleId,
+  Sentiment,
+  Specialist,
+} from "./domain.ts";
 
 export interface BusinessSummary {
   businessId: string;
@@ -34,6 +41,9 @@ export interface TextQueryResponse {
   provider: "openrouter" | "heuristic";
   degraded: boolean;
   classifierError: string | null;
+  /** Advisory typed decisions from the local Laya model; null when it did not answer. */
+  decisionSheet: DecisionSheet | null;
+  decisionSheetError: DecisionSheetFailure | null;
 }
 
 export interface TicketSummary {
@@ -52,6 +62,8 @@ export interface TicketSummary {
   routingRuleHit: string;
   aiDraftOrReply: string;
   citedChunkIds: string[];
+  /** Advisory typed decisions from the local Laya model; null when it did not answer. */
+  decisionSheet: DecisionSheet | null;
   createdAt: string;
   updatedAt: string;
 }

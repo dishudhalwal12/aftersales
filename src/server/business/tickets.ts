@@ -5,6 +5,8 @@
 
 import type { Ticket } from "@prisma/client";
 import { prisma } from "../db.ts";
+import { parseStoredDecisionSheet } from "../integrations/laya.ts";
+import type { TicketSummary } from "../../shared/api.ts";
 
 export type TicketAction = "approve_draft" | "resolve" | "close";
 
@@ -120,9 +122,10 @@ export function toTicketSummary(ticket: {
   routingRuleHit: string;
   aiDraftOrReply: string;
   citedChunkIds: string;
+  decisionSheetJson: string;
   createdAt: Date;
   updatedAt: Date;
-}): Record<string, unknown> {
+}): TicketSummary {
   return {
     ticketId: ticket.id,
     channel: ticket.channel,
@@ -139,6 +142,9 @@ export function toTicketSummary(ticket: {
     routingRuleHit: ticket.routingRuleHit,
     aiDraftOrReply: ticket.aiDraftOrReply,
     citedChunkIds: parseCited(ticket.citedChunkIds),
+    // The column holds JSON from the local model; the wire gets parsed decisions, never
+    // the raw string, and an empty or stale value reads as "no sheet".
+    decisionSheet: parseStoredDecisionSheet(ticket.decisionSheetJson),
     createdAt: ticket.createdAt.toISOString(),
     updatedAt: ticket.updatedAt.toISOString(),
   };

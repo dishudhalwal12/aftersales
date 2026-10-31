@@ -48,6 +48,49 @@ export interface LlmResponse {
   reply_text: string;
 }
 
+/**
+ * Typed decisions from the local Laya model (`laya-service`), advisory only.
+ *
+ * Laya answers constrained questions — pick one option, score a rubric, judge a
+ * proposition — in one bidirectional forward pass. It never writes a reply and it never
+ * decides routing: R1–R7 keeps running on the classifier output alone, so a model this
+ * new can add a second opinion without being able to change what happens to a customer.
+ */
+export type DecisionKind = "choice" | "score" | "noul";
+
+export interface DecisionOption {
+  label: string;
+  probability: number;
+}
+
+export interface LayaDecision {
+  /** Catalog id, e.g. `urgent_now`, `urgency`, `intent`. */
+  id: string;
+  kind: DecisionKind;
+  title: string;
+  /** The answer in words: `urgent`, `billing_question`, `blocking issue or hard deadline`. */
+  verdict: string;
+  /** noul: P(true) · choice: probability of the verdict · score: probability of the top band. */
+  probability: number;
+  /** 0..1 — the model's own confidence for this question (uncalibrated; see the model card). */
+  confidence: number;
+  /** score only: the expected level as a 0..1 fraction of the rubric. */
+  value?: number;
+  /** choice and score: every option the model chose between. Empty for a yes/no question. */
+  options: DecisionOption[];
+}
+
+export interface DecisionSheet {
+  provider: "laya-mlx";
+  model: string;
+  sheetVersion: number;
+  latencyMs: number;
+  decisions: LayaDecision[];
+}
+
+/** Why a ticket has no decision sheet; surfaced instead of an empty panel. */
+export type DecisionSheetFailure = "not_configured" | "unreachable" | "timeout" | "rejected" | "invalid_response";
+
 /** Everything the brain compiler needs from a business record. */
 export interface BusinessFacts {
   name: string;

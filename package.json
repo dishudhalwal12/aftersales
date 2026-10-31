@@ -8,8 +8,11 @@
     "node": ">=22.9"
   },
   "scripts": {
-    "postinstall": "prisma generate",
-    "dev": "next dev",
+    "postinstall": "prisma generate && node scripts/setup.mjs --deps --quiet",
+    "dev": "node scripts/stack.mjs",
+    "dev:web": "next dev",
+    "dev:services": "node scripts/stack.mjs --services-only",
+    "setup": "node scripts/setup.mjs",
     "build": "next build",
     "start": "next start",
     "test": "node --env-file-if-exists=.env --test \"tests/**/*.test.ts\"",

@@ -69,6 +69,8 @@ export async function POST(request: Request) {
       provider: result.provider,
       degraded: result.degraded,
       classifierError: result.classifierError,
+      decisionSheet: result.decisionSheet,
+      decisionSheetError: result.decisionSheetError,
     });
   } catch (error) {
     return errorResponse(error);

@@ -4,6 +4,8 @@ import {
   isOAuthStateSigningConfigured,
 } from "../../../server/integrations/crypto.ts";
 import { isEmailProviderSupported, readEmailProviderSettings } from "../../../server/integrations/email.ts";
+import { isBaileysConfigured } from "../../../server/integrations/baileys.ts";
+import { isLayaConfigured } from "../../../server/integrations/laya.ts";
 import { isMetaConfigured } from "../../../server/integrations/meta.ts";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,8 @@ export function GET() {
         readEmailProviderSettings().configured,
       emailPollingScheduled: Boolean(process.env.CRON_SECRET?.trim()),
       metaConfigured: isMetaConfigured(),
+      layaConfigured: isLayaConfigured(),
+      baileysConfigured: isBaileysConfigured(),
     },
     time: new Date().toISOString(),
   });

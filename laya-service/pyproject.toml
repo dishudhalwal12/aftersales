@@ -1,0 +1,33 @@
+[project]
+name = "laya-decision-service"
+version = "0.1.0"
+description = "Local Laya typed-decision service for AfterSales AI (Apple silicon / MLX)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  # `serve` brings fastapi + uvicorn + httpx, which this service's own app also uses.
+  "laya-mlx[serve]>=0.6.0,<0.7",
+  # Reads `laya-service/.env` when the host starts the service from a shell. Absent
+  # variables are simply not set, so an operator who exports them wins.
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Only the service package: `tests/` is not part of what gets installed.
+packages = ["laya_service"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

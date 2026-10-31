@@ -9,8 +9,10 @@
  *   npm run env:check
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { readEnvValues } from "./lib/env-file.mjs";
 
 const ENV_PATH = resolve(process.cwd(), ".env");
 
@@ -18,33 +20,9 @@ const ENV_PATH = resolve(process.cwd(), ".env");
 const problems = [];
 const notes = [];
 
-/**
- * Parse `.env` the way Node's --env-file does closely enough for a check: skip blank
- * lines and comments, strip one layer of surrounding quotes.
- */
-function readEnvFile(path) {
-  const values = new Map();
-  if (!existsSync(path)) return values;
-  for (const rawLine of readFileSync(path, "utf8").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line.length === 0 || line.startsWith("#")) continue;
-    const equals = line.indexOf("=");
-    if (equals <= 0) continue;
-    const key = line.slice(0, equals).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    let value = line.slice(equals + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
-      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
-    ) {
-      value = value.slice(1, -1);
-    }
-    values.set(key, value);
-  }
-  return values;
-}
-
-const fileValues = readEnvFile(ENV_PATH);
+// One parser for `.env` in this repo: `scripts/lib/env-file.mjs` strips one layer of
+// surrounding quotes and ignores comments, exactly as the setup script relies on.
+const fileValues = readEnvValues(ENV_PATH);
 /** The file wins over the shell for this check: that is what the app will read. */
 const value = (key) => (fileValues.get(key) ?? process.env[key] ?? "").trim();
 
@@ -142,7 +120,17 @@ line("BAILEYS_SERVICE_URL", "e.g. http://localhost:3001 while the bridge runs");
 line("BAILEYS_SERVICE_SECRET", "must match the bridge's secret");
 line("BAILEYS_TIMEOUT_MS", "optional, defaults to 15000");
 
-section("9. Sarvam voice");
+section("9. Typed decisions via the local Laya service");
+line("LAYA_SERVICE_URL", "e.g. http://127.0.0.1:8100 while laya-service runs");
+line("LAYA_SERVICE_SECRET", "must match the service's LAYA_SERVICE_SECRET");
+line("LAYA_TIMEOUT_MS", "optional, defaults to 4000");
+if (value("LAYA_SERVICE_URL").length > 0 !== (value("LAYA_SERVICE_SECRET").length > 0)) {
+  notes.push(
+    "LAYA_SERVICE_URL and LAYA_SERVICE_SECRET must both be set — half-configured counts as off, so no ticket will carry a decision sheet.",
+  );
+}
+
+section("10. Sarvam voice");
 line("SARVAM_API_KEY", "without it the voice panel is an explicit dry run");
 line("SARVAM_CALL_ENDPOINT", "the outbound-call URL from your Sarvam account");
 line("SARVAM_VIRTUAL_NUMBER", "the rented number shown in the dashboard");
@@ -150,7 +138,7 @@ line("SARVAM_AGENT_ID", "the agent those calls are placed against");
 line("SARVAM_WEBHOOK_TOKEN", "the x-sarvam-token the platform sends back");
 line("PUBLIC_WEBHOOK_BASE_URL", "public origin the voice agent calls back to");
 
-section("10. Demo door");
+section("11. Demo door");
 line("JUDGE_DEMO_LOGIN", 'empty means enabled; set to "off" to close it');
 
 console.log("");
@@ -164,7 +152,7 @@ if (notes.length > 0) {
 }
 if (problems.length === 0) {
   console.log("Required keys present. Start the app with: npm run dev");
-  const missing = ["OPENROUTER_API_KEY", "SUPABASE_URL", "EMAIL_GMAIL_CLIENT_ID", "META_APP_ID", "SARVAM_API_KEY", "BAILEYS_SERVICE_URL"]
+  const missing = ["OPENROUTER_API_KEY", "SUPABASE_URL", "EMAIL_GMAIL_CLIENT_ID", "META_APP_ID", "SARVAM_API_KEY", "BAILEYS_SERVICE_URL", "LAYA_SERVICE_URL"]
     .filter((key) => value(key).length === 0);
   if (missing.length > 0) {
     console.log(`Empty optional features (they say so on screen instead of pretending): ${missing.join(", ")}`);
