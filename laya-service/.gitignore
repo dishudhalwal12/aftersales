@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local secrets — the service reads LAYA_SERVICE_SECRET from the environment.
+.env
