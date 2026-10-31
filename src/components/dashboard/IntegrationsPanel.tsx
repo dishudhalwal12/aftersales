@@ -5,7 +5,6 @@ import { ApiError, apiFetch } from "./client.ts";
 import {
   OAUTH_CALLBACK_MESSAGE_TYPE,
   type EmailStatusResponse,
-  type InstagramStatusResponse,
   type OAuthCallbackMessage,
   type WhatsappConnectionResponse,
 } from "../../shared/api.ts";
@@ -13,7 +12,7 @@ import {
 const POLL_INTERVAL_MS = 2500;
 const POLL_DEADLINE_MS = 5 * 60_000;
 
-type PendingAuth = "gmail" | "instagram" | "whatsapp";
+type PendingAuth = "gmail" | "whatsapp";
 type Badge = { className: string; label: string };
 
 function describeError(caught: unknown): string {
@@ -42,10 +41,7 @@ function readOAuthCallbackMessage(value: unknown): OAuthCallbackMessage | null {
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
   if (record["type"] !== OAUTH_CALLBACK_MESSAGE_TYPE) return null;
-  if (
-    record["integration"] !== "email" &&
-    record["integration"] !== "instagram"
-  ) {
+  if (record["integration"] !== "email") {
     return null;
   }
   if (typeof record["status"] !== "string") return null;
@@ -71,17 +67,6 @@ function emailBadge(email: EmailStatusResponse | null): Badge {
   return { className: "badge-draft", label: "not connected" };
 }
 
-function instagramBadge(status: InstagramStatusResponse | null): Badge {
-  if (!status) return { className: "badge-neutral", label: "checking" };
-  if (status.instagram.connected) return { className: "badge-sent", label: "connected" };
-  if (status.instagram.status === "expired") return { className: "badge-esc", label: "reconnect" };
-  if (status.instagram.status === "error") return { className: "badge-esc", label: "needs attention" };
-  if (!status.configured || !status.encryptionConfigured || !status.oauthStateConfigured) {
-    return { className: "badge-neutral", label: "unavailable" };
-  }
-  return { className: "badge-neutral", label: "not connected" };
-}
-
 function whatsappBadge(
   configured: boolean,
   connection: WhatsappConnectionResponse | null,
@@ -103,7 +88,6 @@ export function IntegrationsPanel({
   baileysConfigured: boolean;
 }) {
   const [email, setEmail] = useState<EmailStatusResponse | null>(null);
-  const [instagram, setInstagram] = useState<InstagramStatusResponse | null>(null);
   const [whatsapp, setWhatsapp] = useState<WhatsappConnectionResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<PendingAuth | null>(null);
@@ -112,14 +96,6 @@ export function IntegrationsPanel({
 
   const fetchEmail = useCallback(
     () => apiFetch<EmailStatusResponse>(`/api/social/email/status?businessId=${encodeURIComponent(businessId)}`),
-    [businessId],
-  );
-
-  const fetchInstagram = useCallback(
-    () =>
-      apiFetch<InstagramStatusResponse>(
-        `/api/social/instagram/status?businessId=${encodeURIComponent(businessId)}`,
-      ),
     [businessId],
   );
 
@@ -138,9 +114,8 @@ export function IntegrationsPanel({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [emailResult, instagramResult, whatsappResult] = await Promise.allSettled([
+      const [emailResult, whatsappResult] = await Promise.allSettled([
         fetchEmail(),
-        fetchInstagram(),
         fetchWhatsapp(),
       ]);
       if (cancelled) return;
@@ -148,16 +123,13 @@ export function IntegrationsPanel({
       if (emailResult.status === "fulfilled") setEmail(emailResult.value);
       else setError(describeError(emailResult.reason));
 
-      if (instagramResult.status === "fulfilled") setInstagram(instagramResult.value);
-      else setError(describeError(instagramResult.reason));
-
       if (whatsappResult.status === "fulfilled") setWhatsapp(whatsappResult.value);
       else setError(describeError(whatsappResult.reason));
     })();
     return () => {
       cancelled = true;
     };
-  }, [fetchEmail, fetchInstagram, fetchWhatsapp]);
+  }, [fetchEmail, fetchWhatsapp]);
 
   // The OAuth popup posts its outcome here as soon as the backend callback
   // finishes, so an error stops the wait immediately instead of after the
@@ -187,35 +159,11 @@ export function IntegrationsPanel({
           .catch((caught: unknown) => setError(describeError(caught)));
         return;
       }
-
-      if (message.integration === "instagram") {
-        void (async () => {
-          try {
-            const next = await fetchInstagram();
-            setInstagram(next);
-            if (message.status === "error") {
-              setError(
-                message.message ?? "Instagram connection failed. Start the connection again to retry.",
-              );
-            } else {
-              setError(null);
-              setNote(
-                next.instagram.username
-                  ? `Instagram connected as @${next.instagram.username}.`
-                  : "Instagram connected.",
-              );
-            }
-          } catch (caught) {
-            setError(describeError(caught));
-          }
-        })();
-        return;
-      }
     }
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [businessId, fetchEmail, fetchInstagram]);
+  }, [businessId, fetchEmail]);
 
   useEffect(() => {
     if (waiting === null) return;
@@ -235,33 +183,10 @@ export function IntegrationsPanel({
             setNote(`Gmail connected as ${next.emailAddress ?? "your account"}.`);
             return;
           }
-          // The connect route clears the previous error, so an error here is
-          // from this attempt (the popup message may never have arrived).
           if (next.status === "error") {
             setWaiting(null);
             setError(
               next.lastError ?? "Gmail connection failed. Start the connection again to retry.",
-            );
-            return;
-          }
-        } else if (waiting === "instagram") {
-          const next = await fetchInstagram();
-          if (cancelled) return;
-          setInstagram(next);
-          if (next.instagram.connected) {
-            setWaiting(null);
-            setNote(
-              next.instagram.username
-                ? `Instagram connected as @${next.instagram.username}.`
-                : "Instagram connected.",
-            );
-            return;
-          }
-          if (next.instagram.status === "error") {
-            setWaiting(null);
-            setError(
-              next.instagram.lastError ??
-                "Instagram connection failed. Start the connection again to retry.",
             );
             return;
           }
@@ -303,7 +228,7 @@ export function IntegrationsPanel({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [waiting, fetchEmail, fetchInstagram, fetchWhatsapp]);
+  }, [waiting, fetchEmail, fetchWhatsapp]);
 
   async function run(key: string, action: () => Promise<void>) {
     setBusy(key);
@@ -343,28 +268,6 @@ export function IntegrationsPanel({
     });
   }
 
-  function connectInstagram() {
-    void run("instagram-connect", async () => {
-      const url = `/api/social/instagram/connect?businessId=${encodeURIComponent(businessId)}`;
-      if (openAuthWindow(url)) {
-        setWaiting("instagram");
-        setNote("Finish the Instagram login in the new tab; this card updates on its own.");
-      }
-    });
-  }
-
-  function disconnectInstagramChannel() {
-    void run("instagram-disconnect", async () => {
-      await apiFetch("/api/social/instagram/disconnect", {
-        method: "POST",
-        body: JSON.stringify({ businessId }),
-      });
-      setInstagram(await fetchInstagram());
-      setWaiting(null);
-      setNote("Instagram disconnected and its stored token was removed.");
-    });
-  }
-
   function connectWhatsapp() {
     void run("whatsapp-connect", async () => {
       const next = await apiFetch<WhatsappConnectionResponse>("/api/channels/whatsapp/connect", {
@@ -392,11 +295,7 @@ export function IntegrationsPanel({
   }
 
   const emailState = emailBadge(email);
-  const instagramState = instagramBadge(instagram);
   const whatsappState = whatsappBadge(baileysConfigured, whatsapp);
-  const instagramReady = Boolean(
-    instagram?.configured && instagram.encryptionConfigured && instagram.oauthStateConfigured,
-  );
   const emailReady = Boolean(
     email?.configured && email.encryptionConfigured && email.oauthStateConfigured,
   );
@@ -536,72 +435,33 @@ export function IntegrationsPanel({
           </div>
         </div>
 
-        {/* Facebook Page – removed. Integration coming in a future release. */}
-        <div className="glass channel-card" style={{ background: "#fff", opacity: 0.55 }}>
-          <div className="channel-title">
-            <b style={{ fontSize: 14 }}>Facebook Page</b>
-            <span className="badge badge-neutral">coming soon</span>
-          </div>
-          <p className="tiny muted">
-            Facebook Page Messenger integration is coming soon. Stay tuned for updates.
-          </p>
-          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            <span className="badge badge-neutral">Page Messenger</span>
-          </div>
-        </div>
-
-        <div className="glass channel-card" style={{ background: "#fff" }}>
+        {/* Instagram DM & comments — disabled / to be launched */}
+        <div className="glass channel-card" style={{ background: "#fff", opacity: 0.75 }}>
           <div className="channel-title">
             <b style={{ fontSize: 14 }}>Instagram DM &amp; comments</b>
-            <span className={`badge ${instagramState.className}`}>{instagramState.label}</span>
+            <span className="badge badge-neutral">to be launched</span>
           </div>
           <p className="tiny muted">
-            {!instagram?.configured
-              ? "INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET are not set on this deployment."
-              : !instagram.encryptionConfigured || !instagram.oauthStateConfigured
-                ? "Set INTEGRATION_ENCRYPTION_KEY and INTEGRATION_STATE_SECRET to enable connections."
-                : "Instagram Login authorizes the professional account directly; the 60-day token is stored encrypted and subscribed to messages and comments."}
+            Instagram DM &amp; comments integration will be launched soon. Professional account connection will be available once live.
           </p>
           <div className="glass panel-tight" style={{ background: "#fff" }}>
             <div className="row-between">
               <b style={{ fontSize: 13 }}>Professional account</b>
-              <span className={`badge ${instagramState.className}`}>{instagramState.label}</span>
+              <span className="badge badge-neutral">coming soon</span>
             </div>
             <p className="tiny muted" style={{ marginTop: 4 }}>
-              {instagram?.instagram.connected
-                ? `@${instagram.instagram.username ?? instagram.instagram.accountId ?? "account"} · token valid until ${formatWhen(instagram.instagram.tokenExpiresAt)}`
-                : instagram?.instagram.lastError ?? "Not connected."}
+              Direct messaging and comment auto-replies via Instagram Login.
             </p>
-            {instagram?.instagram.connected && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={busy !== null}
-                onClick={disconnectInstagramChannel}
-              >
-                {busy === "instagram-disconnect" ? "Disconnecting…" : "Disconnect"}
-              </button>
-            )}
           </div>
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            {instagramReady && !instagram?.instagram.connected && (
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={busy !== null}
-                onClick={connectInstagram}
-              >
-                {busy === "instagram-connect" ? "Opening Instagram…" : "Connect Instagram"}
-              </button>
-            )}
-            {instagramReady &&
-              !instagram?.instagram.connected &&
-              instagram?.instagram.status === "expired" && (
-                <span className="badge badge-esc">token expired</span>
-              )}
-            {waiting === "instagram" && (
-              <span className="badge badge-draft">waiting for Instagram</span>
-            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled
+              style={{ cursor: "not-allowed", opacity: 0.6 }}
+            >
+              Coming soon
+            </button>
             <span className="badge badge-neutral">Instagram Login · messages + comments</span>
           </div>
         </div>
