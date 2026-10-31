@@ -146,8 +146,10 @@ export function parseDecisionSheet(value: unknown): DecisionSheet | null {  if (
  * stored value no longer matches this contract. Both read as "no sheet", so an old ticket
  * degrades to no panel instead of breaking the queue.
  */
-export function parseStoredDecisionSheet(raw: string): DecisionSheet | null {
-  if (raw.trim().length === 0) return null;
+export function parseStoredDecisionSheet(raw: string | null | undefined): DecisionSheet | null {
+  // A row read by a client generated before the column existed has no value here at all;
+  // that is "no sheet", not a reason to fail the whole queue.
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
   try {
     return parseDecisionSheet(JSON.parse(raw) as unknown);
   } catch {

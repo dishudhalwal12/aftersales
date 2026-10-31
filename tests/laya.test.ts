@@ -235,6 +235,8 @@ describe("Decision sheet parsing", () => {
   });
 
   it("reads an empty or stale column as no sheet instead of throwing", () => {
+    assert.equal(parseStoredDecisionSheet(undefined), null);
+    assert.equal(parseStoredDecisionSheet(null), null);
     assert.equal(parseStoredDecisionSheet(""), null);
     assert.equal(parseStoredDecisionSheet("   "), null);
     assert.equal(parseStoredDecisionSheet("not json"), null);
