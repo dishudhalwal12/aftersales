@@ -61,7 +61,7 @@ export function DashboardShell({
     <>
       <header className="topbar">
         <div className="wrap topbar-inner">
-          <Link href="/" className="topbar-brand" aria-label="AfterSales AI home">
+          <Link href="/" prefetch={false} className="topbar-brand" aria-label="AfterSales AI home">
             <Logo />
           </Link>
 

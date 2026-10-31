@@ -91,7 +91,7 @@ export default async function LandingPage() {
   return (
     <main className="landing" data-page="landing">
       <header className="landing-nav">
-        <Link href="/" className="landing-wordmark" aria-label="AfterSales AI home">
+        <Link href="/" prefetch={false} className="landing-wordmark" aria-label="AfterSales AI home">
           AfterSales<span>.</span>
         </Link>
 

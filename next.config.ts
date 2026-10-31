@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
     // redirect: the browser keeps `/` in the address bar while the static page is served
     // from its real path, and its assets are referenced from the site root
     // (`/landing/assets/...`) for exactly this reason.
+    //
+    // Because `/` is a static file and not a React route, it cannot answer an RSC
+    // prefetch: Next's `<Link>` would request `/?_rsc=...` and get a 404 on every
+    // page that links to `/`. Those links therefore set `prefetch={false}`. Remove
+    // that only if `/` becomes a real route.
     return [
       { source: "/", destination: "/landing/index.html" },
       { source: "/landing", destination: "/landing/index.html" },

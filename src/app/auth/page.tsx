@@ -32,7 +32,7 @@ export default async function AuthPage({
     <main className="auth-view">
       <section className="auth-brand">
         <div className="auth-brandtop">
-          <Link href="/" className="auth-wordmark" aria-label="AfterSales AI home">
+          <Link href="/" prefetch={false} className="auth-wordmark" aria-label="AfterSales AI home">
             AfterSales<span>.</span>
           </Link>
           <span className="auth-eyebrow">SPHINX &rsquo;26 · PS 2.5</span>
