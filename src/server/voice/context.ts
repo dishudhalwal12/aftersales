@@ -580,26 +580,60 @@ export interface SaveVoiceAgentContextResult {
   recompiled: boolean;
 }
 
-async function assertMappingAvailable(
+type MappingConflict = {
+  businessId: string;
+  ownerId: string;
+  virtualNumber: string | null;
+  agentId: string | null;
+};
+
+/**
+ * Finds other businesses that already own the number or agent id being saved.
+ *
+ * A mapping can move between two businesses owned by the same person: the
+ * owner is switching which of their shops answers the phone. It must never
+ * move between owners, because that would let one tenant take another
+ * tenant's number. `saveVoiceAgentContext` clears same-owner conflicts in the
+ * same transaction as the new mapping.
+ */
+async function findMappingConflicts(
   businessId: string,
   context: VoiceAgentContextFields,
-): Promise<void> {
-  if (context.virtualNumber !== null) {
-    const clash = await prisma.businessVoiceAgentContext.findFirst({
-      where: { virtualNumber: context.virtualNumber, businessId: { not: businessId } },
-      select: { businessId: true },
-    });
-    if (clash !== null) {
-      throw new HttpError(409, "this virtual number is already mapped to another business");
-    }
-  }
-  if (context.agentId !== null) {
-    const clash = await prisma.businessVoiceAgentContext.findFirst({
-      where: { agentId: context.agentId, businessId: { not: businessId } },
-      select: { businessId: true },
-    });
-    if (clash !== null) {
-      throw new HttpError(409, "this agent id is already mapped to another business");
+): Promise<MappingConflict[]> {
+  const conditions = [
+    ...(context.virtualNumber !== null ? [{ virtualNumber: context.virtualNumber }] : []),
+    ...(context.agentId !== null ? [{ agentId: context.agentId }] : []),
+  ];
+  if (conditions.length === 0) return [];
+
+  const rows = await prisma.businessVoiceAgentContext.findMany({
+    where: {
+      businessId: { not: businessId },
+      OR: conditions,
+    },
+    select: {
+      businessId: true,
+      virtualNumber: true,
+      agentId: true,
+      business: { select: { ownerId: true } },
+    },
+  });
+
+  return rows.map((row) => ({
+    businessId: row.businessId,
+    ownerId: row.business.ownerId,
+    virtualNumber: row.virtualNumber,
+    agentId: row.agentId,
+  }));
+}
+
+function assertSameOwner(conflicts: MappingConflict[], ownerId: string): void {
+  for (const conflict of conflicts) {
+    if (conflict.ownerId !== ownerId) {
+      throw new HttpError(
+        409,
+        "this virtual number or agent id is already mapped to another business",
+      );
     }
   }
 }
@@ -617,7 +651,8 @@ export async function saveVoiceAgentContext(
   business: Business,
   input: ParsedVoiceContextBody,
 ): Promise<SaveVoiceAgentContextResult> {
-  await assertMappingAvailable(business.id, input.context);
+  const conflicts = await findMappingConflicts(business.id, input.context);
+  assertSameOwner(conflicts, business.ownerId);
 
   const changedFacts = FACT_KEYS.filter(
     (key) => input.businessPatch[key] !== undefined && input.businessPatch[key] !== business[key],
@@ -676,6 +711,24 @@ export async function saveVoiceAgentContext(
           ...(changedFacts.includes("agentTone") ? { agentTone: nextFacts.agentTone } : {}),
           compiledBrainMd: markdown,
           brainVersion,
+        },
+      });
+    }
+
+    // Same-owner reassignment: the number/agent moves to this business.
+    // Clear only the exact fields being claimed, so a conflict row that owns
+    // an unrelated identifier keeps it.
+    for (const conflict of conflicts) {
+      await tx.businessVoiceAgentContext.update({
+        where: { businessId: conflict.businessId },
+        data: {
+          ...(input.context.virtualNumber !== null &&
+          conflict.virtualNumber === input.context.virtualNumber
+            ? { virtualNumber: null }
+            : {}),
+          ...(input.context.agentId !== null && conflict.agentId === input.context.agentId
+            ? { agentId: null }
+            : {}),
         },
       });
     }
