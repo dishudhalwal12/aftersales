@@ -43,3 +43,25 @@ export function isDatabaseUnavailable(error: unknown): boolean {
     (error as { code?: unknown }).code ?? (error as { errorCode?: unknown }).errorCode;
   return typeof code === "string" && SCHEMA_CODES.has(code);
 }
+
+/**
+ * Runs a database-backed lookup and answers with `fallback` when the database
+ * itself is unusable, so a sleeping project degrades one screen instead of
+ * replacing it with a stack trace.
+ *
+ * Only availability failures are absorbed. A bug in our own query still throws:
+ * disguising it as infrastructure would make a real defect read as an outage and
+ * send the next person to the hosting dashboard for nothing.
+ */
+export async function withDatabaseFallback<T>(
+  fallback: T,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+    console.error("[db] database unavailable:", error);
+    return fallback;
+  }
+}

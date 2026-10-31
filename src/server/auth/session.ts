@@ -5,6 +5,7 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "../db.ts";
+import { withDatabaseFallback } from "../db-errors.ts";
 import {
   SESSION_COOKIE,
   sessionCookieOptions,
@@ -40,10 +41,14 @@ export interface SessionUser {
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await getSession();
   if (!session) return null;
-  return prisma.user.findUnique({
-    where: { id: session.sub },
-    select: { id: true, email: true, name: true },
-  });
+  // A database that is asleep must read as "nobody is signed in" so the page
+  // still renders. The auth actions already explain the outage in the form.
+  return withDatabaseFallback(null, () =>
+    prisma.user.findUnique({
+      where: { id: session.sub },
+      select: { id: true, email: true, name: true },
+    }),
+  );
 }
 
 /** Post-auth redirect rule (PRD §1.3): no business -> onboarding, else dashboard. */
