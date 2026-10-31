@@ -22,6 +22,14 @@ export async function POST(request: Request) {
     if (kind !== "page" && kind !== "instagram") {
       throw new IntegrationError(400, "VALIDATION_ERROR", 'kind must be "page" or "instagram"');
     }
+    // Instagram now connects through Instagram Login, not a Page token.
+    if (kind === "instagram") {
+      throw new IntegrationError(
+        409,
+        "INSTAGRAM_USE_LOGIN",
+        "Connect Instagram from the Instagram card. This Facebook flow only links Pages.",
+      );
+    }
     const assetId = requireString(body, "assetId", { max: 200 });
 
     const result = await selectMetaAsset({

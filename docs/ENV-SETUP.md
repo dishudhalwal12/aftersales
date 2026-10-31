@@ -258,8 +258,11 @@ Leave a key empty until you really have the credential; a wrong value is worse t
 | `OPENROUTER_API_KEY` | <https://openrouter.ai> → Keys → Create key. Then set `LLM_PROVIDER="openrouter"`. |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Supabase → your project → **Project Settings → API**. This is what makes **Continue with Google** work. |
 | `EMAIL_GMAIL_CLIENT_ID`, `EMAIL_GMAIL_CLIENT_SECRET` | Google Cloud Console → **APIs & Services → Credentials → Create OAuth client → Web application**; add `<origin>/api/social/email/callback` as a redirect URI. |
-| `META_APP_ID`, `META_APP_SECRET` | <https://developers.facebook.com> → your app → **Settings → Basic**. Needs App Review for the messaging scopes. |
+| `META_APP_ID`, `META_APP_SECRET` | <https://developers.facebook.com> → your app → **Settings → Basic**. Needs App Review for the messaging scopes. Facebook **Pages only** — Instagram uses its own app below. |
 | `META_WEBHOOK_VERIFY_TOKEN` | any random string **you** invent; paste the same one into Meta's webhook screen. |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | Meta for Developers → **Create app → Instagram** (the "Instagram API with Instagram Login" product, not Facebook Login) → **API setup**. Add `<origin>/api/social/instagram/callback` as a valid OAuth redirect URI. |
+| `INSTAGRAM_REDIRECT_URI` | must exactly match the redirect URI registered in the Instagram app; empty means `<INTEGRATIONS_BASE_URL or request origin>/api/social/instagram/callback`. |
+| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | any random string **you** invent; paste the same one into the Instagram webhook screen. Webhook URL: `<origin>/api/social/instagram/webhook`. |
 | `SARVAM_API_KEY`, `SARVAM_AGENT_ID`, `SARVAM_CALL_ENDPOINT`, `SARVAM_VIRTUAL_NUMBER` | your Sarvam account. Without them the voice panel is an explicit **dry run**. |
 | `SARVAM_WEBHOOK_TOKEN`, `SARVAM_CONTEXT_TOKEN` | random strings **you** invent. `SARVAM_WEBHOOK_TOKEN` authenticates call-completion webhooks; `SARVAM_CONTEXT_TOKEN` authenticates the on-start context tool (`/api/voice/sarvam-context`) and the request tool (`/api/voice/sarvam-request`), and falls back to the webhook token when empty. Empty means the context endpoint reports `contextAuth: "unconfigured"` instead of pretending it is secured. |
 | `BAILEYS_SERVICE_URL`, `BAILEYS_SERVICE_SECRET` | `baileys-service/` in this repo — see [Local WhatsApp bridge](#local-whatsapp-bridge). `npm run setup` writes the local values; a tunnel is only needed when this app is deployed. |
@@ -299,4 +302,4 @@ the bridge needs **Connect WhatsApp** again, which resumes the saved session wit
 2. **Never paste a value into a chat, an issue, or a screenshot.** `npm run env:check` prints names only.
 3. **One file per machine, same values.** `INTEGRATION_ENCRYPTION_KEY` and `AUTH_SECRET` must match on every
    machine that shares the database, or logins and stored provider tokens stop working.
-4. **Rotate after the hackathon:** database password, `AUTH_SECRET`, the Gmail and Meta client secrets.
+4. **Rotate after the hackathon:** database password, `AUTH_SECRET`, the Gmail, Meta and Instagram client secrets.

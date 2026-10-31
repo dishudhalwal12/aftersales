@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Environment check — tells a human which keys are set and which are missing.
+ * Environment check – tells a human which keys are set and which are missing.
  *
  * It never prints a value, so its output is safe to screenshot or paste into a chat.
  * Grouped by feature, because "OPENROUTER_API_KEY is empty" only means something
@@ -28,9 +28,9 @@ const value = (key) => (fileValues.get(key) ?? process.env[key] ?? "").trim();
 
 function line(key, hint, { required = false, note = "" } = {}) {
   const present = value(key).length > 0;
-  const mark = present ? "✓" : required ? "✗" : "·";
+  const mark = present ? "✓" : required ? "✗" : "○";
   const state = present ? "set" : required ? "MISSING" : "empty";
-  const suffix = present ? (note.length > 0 ? ` (${note})` : "") : ` — ${hint}`;
+  const suffix = present ? (note.length > 0 ? ` (${note})` : "") : ` – ${hint}`;
   console.log(`  ${mark} ${key.padEnd(34)} ${state}${suffix}`);
   if (!present && required) problems.push(key);
 }
@@ -44,7 +44,7 @@ function checkShape(key, ok, message) {
   if (!ok) problems.push(`${key}: ${message}`);
 }
 
-console.log("AfterSales AI — environment check");
+console.log("AfterSales AI – environment check");
 console.log(`File: ${ENV_PATH}`);
 if (!existsSync(ENV_PATH)) {
   console.log(
@@ -54,7 +54,7 @@ if (!existsSync(ENV_PATH)) {
   console.log(`Keys found in the file: ${fileValues.size}`);
 }
 
-section("1. Required — the app cannot start without these");
+section("1. Required – the app cannot start without these");
 line("DATABASE_URL", "the Postgres connection string (prisma/schema.prisma reads it)", { required: true });
 line("DIRECT_URL", "the same database, used for schema pushes", { required: true });
 line("AUTH_SECRET", "signs the login cookie, at least 16 characters", { required: true });
@@ -73,7 +73,7 @@ line("LLM_PROVIDER", "openrouter or heuristic");
 line("OPENROUTER_API_KEY", "without it the app answers with the labelled offline classifier");
 line("LLM_MODEL_ID", "the model id used when the key is set", { note: value("LLM_MODEL_ID") });
 if (value("LLM_PROVIDER").toLowerCase() === "openrouter" && value("OPENROUTER_API_KEY").length === 0) {
-  notes.push("LLM_PROVIDER=openrouter but OPENROUTER_API_KEY is empty — every triage call will fail as R7.");
+  notes.push("LLM_PROVIDER=openrouter but OPENROUTER_API_KEY is empty – every triage call will fail as R7.");
 }
 
 section("4. Google sign-in (Supabase OAuth broker)");
@@ -109,11 +109,12 @@ line("EMAIL_GMAIL_CLIENT_ID", "Google Cloud → Credentials → OAuth client id"
 line("EMAIL_GMAIL_CLIENT_SECRET", "Google Cloud → Credentials → OAuth client secret");
 line("INTEGRATIONS_BASE_URL", "public origin used to build the OAuth redirect URI");
 
-section("7. Meta — Facebook Page and Instagram DM");
-line("META_APP_ID", "Meta for Developers → your app → App ID");
-line("META_APP_SECRET", "Meta for Developers → your app → App secret");
-line("META_WEBHOOK_VERIFY_TOKEN", "the token you typed into Meta's webhook screen");
-line("META_GRAPH_VERSION", "optional, defaults to v26.0");
+section("7. Instagram – Instagram API with Instagram Login");
+line("INSTAGRAM_APP_ID", "Meta for Developers → your Instagram app → App ID");
+line("INSTAGRAM_APP_SECRET", "Meta for Developers → your Instagram app → App secret");
+line("INSTAGRAM_REDIRECT_URI", "must equal <origin>/api/social/instagram/callback");
+line("INSTAGRAM_WEBHOOK_VERIFY_TOKEN", "the token you typed into the Instagram webhook screen");
+line("INSTAGRAM_GRAPH_VERSION", "optional, defaults to v21.0");
 
 section("8. WhatsApp via the local Baileys service");
 line("BAILEYS_SERVICE_URL", "e.g. http://localhost:3001 while the bridge runs");
@@ -126,7 +127,7 @@ line("LAYA_SERVICE_SECRET", "must match the service's LAYA_SERVICE_SECRET");
 line("LAYA_TIMEOUT_MS", "optional, defaults to 4000");
 if (value("LAYA_SERVICE_URL").length > 0 !== (value("LAYA_SERVICE_SECRET").length > 0)) {
   notes.push(
-    "LAYA_SERVICE_URL and LAYA_SERVICE_SECRET must both be set — half-configured counts as off, so no ticket will carry a decision sheet.",
+    "LAYA_SERVICE_URL and LAYA_SERVICE_SECRET must both be set – half-configured counts as off, so no ticket will carry a decision sheet.",
   );
 }
 
@@ -149,11 +150,11 @@ if (problems.length > 0) {
 }
 if (notes.length > 0) {
   console.log("Worth knowing:");
-  for (const note of notes) console.log(`  · ${note}`);
+  for (const note of notes) console.log(`  ○ ${note}`);
 }
 if (problems.length === 0) {
   console.log("Required keys present. Start the app with: npm run dev");
-  const missing = ["OPENROUTER_API_KEY", "SUPABASE_URL", "EMAIL_GMAIL_CLIENT_ID", "META_APP_ID", "SARVAM_API_KEY", "BAILEYS_SERVICE_URL", "LAYA_SERVICE_URL"]
+  const missing = ["OPENROUTER_API_KEY", "SUPABASE_URL", "EMAIL_GMAIL_CLIENT_ID", "INSTAGRAM_APP_ID", "SARVAM_API_KEY", "BAILEYS_SERVICE_URL", "LAYA_SERVICE_URL"]
     .filter((key) => value(key).length === 0);
   if (missing.length > 0) {
     console.log(`Empty optional features (they say so on screen instead of pretending): ${missing.join(", ")}`);

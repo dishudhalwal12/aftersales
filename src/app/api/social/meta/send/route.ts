@@ -8,6 +8,7 @@ import {
 } from "../../../../../server/auth/tenant.ts";
 import { IntegrationError } from "../../../../../server/integrations/errors.ts";
 import { sendMetaForBusiness } from "../../../../../server/integrations/meta.ts";
+import { sendInstagramForBusiness } from "../../../../../server/integrations/instagram.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +31,15 @@ export async function POST(request: Request) {
     const recipientId = requireString(body, "recipientId", { max: 200 });
     const text = requireString(body, "text", { max: 2000 });
 
-    const result = await sendMetaForBusiness({
-      businessId,
-      provider: rawChannel === "facebook" ? "FACEBOOK" : "INSTAGRAM",
-      recipientId,
-      text,
-    });
+    const result =
+      rawChannel === "instagram"
+        ? await sendInstagramForBusiness({ businessId, recipientId, text })
+        : await sendMetaForBusiness({
+            businessId,
+            provider: "FACEBOOK",
+            recipientId,
+            text,
+          });
 
     return NextResponse.json({ sent: true, ...result });
   } catch (error) {

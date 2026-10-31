@@ -131,9 +131,6 @@ export default async function LandingPage() {
             <Link href="/dashboard" className="landing-pill">
               Open the live demo
             </Link>
-            <Link href="/auth#judge-demo" className="landing-ghost">
-              Judge demo &rarr;
-            </Link>
           </div>
           <p className="landing-micro">4 channels &middot; 6 chunks &middot; 7 rules</p>
         </div>

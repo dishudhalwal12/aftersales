@@ -19,7 +19,8 @@ export async function GET(request: Request) {
     const result = await getMetaAssetsForBusiness(businessId, user.id);
     return NextResponse.json({
       businessId,
-      assets: result.assets,
+      // Pages only: Instagram connects through Instagram Login now.
+      assets: result.assets.filter((asset) => asset.kind === "page"),
       pendingExpiresAt: result.expiresAt,
     });
   } catch (error) {
