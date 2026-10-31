@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, emitDataChanged } from "./client.ts";
+import { ApiError, apiFetch, emitDataChanged } from "./client.ts";
 import type { VoiceAgentContextResponse } from "../../shared/api.ts";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -96,8 +96,9 @@ export function VoiceContextPanel({ businessId }: { businessId: string }) {
     setBusy(true);
     setError(null);
     setNotice(null);
-    try {
-      const response = await apiFetch<VoiceAgentContextResponse>(
+
+    const put = (overrideMapping: boolean) =>
+      apiFetch<VoiceAgentContextResponse>(
         `/api/businesses/${businessId}/voice-agent/context`,
         {
           method: "PUT",
@@ -120,9 +121,27 @@ export function VoiceContextPanel({ businessId }: { businessId: string }) {
             virtualNumber: form.virtualNumber,
             agentId: form.agentId,
             isActive: form.isActive,
+            overrideMapping,
           }),
         },
       );
+
+    try {
+      let response: VoiceAgentContextResponse;
+      try {
+        response = await put(false);
+      } catch (caught) {
+        if (!(caught instanceof ApiError) || caught.status !== 409) throw caught;
+        const confirmed = window.confirm(
+          "This number or agent is already linked to another business. Move it to this business? The other business will stop receiving calls on this number.",
+        );
+        if (!confirmed) {
+          setError("Save cancelled — the number or agent is still linked to the other business.");
+          return;
+        }
+        response = await put(true);
+      }
+
       setSaved(response);
       setForm(toForm(response));
       setNotice(

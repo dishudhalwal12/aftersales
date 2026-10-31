@@ -219,6 +219,8 @@ function readFactsPatch(body: Record<string, unknown>): Partial<BusinessFacts> {
 export interface ParsedVoiceContextBody {
   context: VoiceAgentContextFields;
   businessPatch: Partial<BusinessFacts>;
+  /** Explicit owner confirmation to move a number/agent away from another business. */
+  overrideMapping: boolean;
 }
 
 /**
@@ -230,6 +232,10 @@ export function parseVoiceContextBody(body: Record<string, unknown>): ParsedVoic
   const isActive = body["isActive"];
   if (isActive !== undefined && typeof isActive !== "boolean") {
     throw new HttpError(400, 'field "isActive" must be a boolean');
+  }
+  const overrideMapping = body["overrideMapping"];
+  if (overrideMapping !== undefined && typeof overrideMapping !== "boolean") {
+    throw new HttpError(400, 'field "overrideMapping" must be a boolean');
   }
 
   return {
@@ -244,6 +250,7 @@ export function parseVoiceContextBody(body: Record<string, unknown>): ParsedVoic
       isActive: isActive === undefined ? true : isActive,
     },
     businessPatch: readFactsPatch(body),
+    overrideMapping: overrideMapping === true,
   };
 }
 
@@ -652,7 +659,22 @@ export async function saveVoiceAgentContext(
   input: ParsedVoiceContextBody,
 ): Promise<SaveVoiceAgentContextResult> {
   const conflicts = await findMappingConflicts(business.id, input.context);
-  assertSameOwner(conflicts, business.ownerId);
+  if (input.overrideMapping) {
+    for (const conflict of conflicts) {
+      if (conflict.ownerId !== business.ownerId) {
+        console.warn("[voice] moving a mapping across owners", {
+          fromBusinessId: conflict.businessId,
+          fromOwnerId: conflict.ownerId,
+          toBusinessId: business.id,
+          toOwnerId: business.ownerId,
+          virtualNumber: input.context.virtualNumber,
+          agentId: input.context.agentId,
+        });
+      }
+    }
+  } else {
+    assertSameOwner(conflicts, business.ownerId);
+  }
 
   const changedFacts = FACT_KEYS.filter(
     (key) => input.businessPatch[key] !== undefined && input.businessPatch[key] !== business[key],
