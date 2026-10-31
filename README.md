@@ -112,7 +112,7 @@ production build hits a Next.js 16.4.3 `/_global-error` crash that reproduces on
 | Sarvam telephone leg | **NOT PLACED HERE** | Needs `SARVAM_API_KEY` + `SARVAM_CALL_ENDPOINT`. Without them the panel is an explicit dry run |
 | Gmail connect / send / receive | **REAL, NOT LIVE-TESTED** | OAuth URL, token refresh, RFC 5322 MIME, thread headers, polling and duplicate suppression in `src/server/integrations/email.ts`, covered by unit tests with a fake `fetch`; no Google credentials existed in this environment |
 | Meta Page / Instagram connect | **REAL, NOT LIVE-TESTED** | Facebook Login, short→long-lived Page token exchange, one-asset selection, encrypted storage, sends via `/{page-id}/messages`; signing and webhook HMAC tested; no Meta app existed in this environment |
-| WhatsApp via local Baileys | **REAL, NOT LIVE-TESTED** | Backend client, QR/status polling, signed inbound and status webhooks; `baileys-service` has its own suite; needs the service, a tunnel and a phone |
+| WhatsApp via local Baileys | **REAL, NOT LIVE-TESTED** | Backend client, QR/status polling, signed inbound and status webhooks; `baileys-service` has its own suite; needs the service and a phone (a tunnel only when this app is deployed) |
 | Credential storage | **REAL** | AES-256-GCM vault over `ChannelConnection.configJson`, HMAC-signed OAuth state (10 min, tenant-bound); tamper/expiry/wrong-secret tests |
 | Webhook authenticity | **REAL** | Meta `X-Hub-Signature-256` HMAC, Baileys shared secret, cron bearer secret — all rejected paths tested |
 | Provider transports in this deployment | **NOT CONNECTED** | The inbound webhook contract is real and idempotent; no live Baileys/Meta/Google session runs in this deployment |
@@ -263,14 +263,24 @@ renders status fields (mailbox address, Page name, or the transient pairing QR).
 
 ### WhatsApp (Baileys)
 
+Run both processes on one machine and no tunnel is involved: the app calls the service on
+`http://localhost:3001`, and the service posts callbacks to `http://localhost:3000`. A tunnel is only
+needed when this app is deployed and the service stays on your laptop.
+
 1. Run the local service from `baileys-service/` (its README covers install, build, run and the QR
-   flow), expose it through a tunnel, and set its `BAILEYS_SERVICE_SECRET` plus
-   `VERCEL_BACKEND_URL` (or the two explicit webhook URLs).
-2. In this app set the same `BAILEYS_SERVICE_SECRET` and `BAILEYS_SERVICE_URL` (the tunnel origin).
+   flow) and set its `BAILEYS_SERVICE_SECRET` plus `VERCEL_BACKEND_URL` (or the two explicit webhook
+   URLs). Locally that backend URL is `http://localhost:3000`.
+2. In this app set the same `BAILEYS_SERVICE_SECRET` and `BAILEYS_SERVICE_URL`
+   (`http://localhost:3001` locally, the tunnel origin when this app is deployed).
 3. Connect from the dashboard. The backend opens the session and renders the QR the service returns;
    the QR is pairing material, is never persisted by this app, and disappears once connected.
-4. Baileys session files live in the service's gitignored `sessions/` folder. They never enter this
-   app, the browser, or source control. Disconnect logs the phone out and drops the pairing.
+4. The QR refreshes every ~20 s until the phone confirms, so a scan that misses one code simply uses
+   the next one.
+5. Only 1:1 text messages from other numbers are answered. Your own messages and group chats are
+   ignored, and a grounded answer is auto-sent only under R6 — R1–R5 escalate or draft instead.
+6. Baileys session files live in the service's gitignored `sessions/` folder. They never enter this
+   app, the browser, or source control. Disconnect logs the phone out and drops the pairing; a bridge
+   restart keeps the pairing and resumes it on the next **Connect WhatsApp** click.
 
 ### What is not verified here
 

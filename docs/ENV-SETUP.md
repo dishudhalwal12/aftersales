@@ -261,12 +261,32 @@ Leave a key empty until you really have the credential; a wrong value is worse t
 | `META_APP_ID`, `META_APP_SECRET` | <https://developers.facebook.com> → your app → **Settings → Basic**. Needs App Review for the messaging scopes. |
 | `META_WEBHOOK_VERIFY_TOKEN` | any random string **you** invent; paste the same one into Meta's webhook screen. |
 | `SARVAM_API_KEY`, `SARVAM_AGENT_ID`, `SARVAM_CALL_ENDPOINT`, `SARVAM_VIRTUAL_NUMBER` | your Sarvam account. Without them the voice panel is an explicit **dry run**. |
-| `BAILEYS_SERVICE_URL`, `BAILEYS_SERVICE_SECRET` | `baileys-service/` in this repo — see `baileys-service/README.md`. Needs a running bridge and a tunnel. |
+| `BAILEYS_SERVICE_URL`, `BAILEYS_SERVICE_SECRET` | `baileys-service/` in this repo — see [Local WhatsApp bridge](#local-whatsapp-bridge). A tunnel is only needed when this app is deployed. |
 | `INTEGRATIONS_BASE_URL` | the public origin of the deployment, e.g. `https://your-app.vercel.app`. Empty locally. |
 | `AUTH_BASE_URL` | only for a non-Vercel deployment; Vercel's domain is detected automatically. |
 
 After editing, run `npm run env:check` again. On a deployment, remember the same values must also be in
 **Vercel → Settings → Environment Variables** — the file on your laptop does nothing for the live site.
+
+### Local WhatsApp bridge
+
+Both processes run on this machine, so neither needs a tunnel: the app reaches the bridge on
+`http://localhost:3001`, and the bridge posts callbacks to `http://localhost:3000`.
+
+1. Generate one shared secret: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+2. `cd baileys-service && npm install && cp .env.example .env`, then in that `.env` set
+   `BAILEYS_SERVICE_SECRET` to the secret and `VERCEL_BACKEND_URL="http://localhost:3000"`.
+3. In this app's `.env` set the same secret as `BAILEYS_SERVICE_SECRET`, plus
+   `BAILEYS_SERVICE_URL="http://localhost:3001"` and `BAILEYS_TIMEOUT_MS="20000"`.
+4. Start the bridge (`cd baileys-service && npm start`), keep `npm run dev` running for the app, and
+   check `curl http://localhost:3001/health`.
+5. Open **Dashboard → Channels**, click **Connect WhatsApp**, and scan the QR with
+   **WhatsApp → Linked devices → Link a device**. The QR refreshes every ~20 s until the phone confirms.
+
+Only 1:1 text messages from other numbers are answered; your own outgoing messages and group chats are
+ignored. A grounded answer is sent automatically (R6); low confidence, urgency or a request for a human
+is escalated instead of auto-sent (R1–R4). The session lives in `baileys-service/sessions/` — restarting
+the bridge needs **Connect WhatsApp** again, which resumes the saved session without a new QR.
 
 ---
 
