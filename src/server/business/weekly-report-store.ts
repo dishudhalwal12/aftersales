@@ -52,13 +52,20 @@ export interface StoredWeeklyReportView extends WeeklyReport {
   trigger: WeeklyReportTrigger;
 }
 
+/** The outcome of a save: `created` is derived from the write, not a stale read. */
+export interface SavedWeeklyReport {
+  stored: StoredWeeklyReportRow;
+  created: boolean;
+}
+
 export interface WeeklyReportStore {
   findTickets(input: { businessId: string; from: Date; to: Date }): Promise<ReportTicket[]>;
   findReport(input: {
     businessId: string;
     weekStart: Date;
   }): Promise<StoredWeeklyReportRow | null>;
-  saveReport(write: WeeklyReportWrite): Promise<StoredWeeklyReportRow>;
+  /** Create-if-absent: an existing snapshot is returned untouched, never overwritten. */
+  saveReport(write: WeeklyReportWrite): Promise<SavedWeeklyReport>;
   listReportHistory(input: {
     businessId: string;
     limit: number;
@@ -154,11 +161,10 @@ export async function generateWeeklyReport(
     to: window.end,
   });
   const report = buildWeeklyReport({ tickets: rows, previousTickets: rows, now });
-  const existing = await store.findReport({ businessId, weekStart: window.start });
-  const stored = await store.saveReport(
+  const saved = await store.saveReport(
     toWeeklyReportWrite({ businessId, report, trigger, generatedAt: now }),
   );
-  return { created: existing === null, stored, report };
+  return { created: saved.created, stored: saved.stored, report };
 }
 
 /**

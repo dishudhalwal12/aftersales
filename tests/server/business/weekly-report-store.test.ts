@@ -7,6 +7,7 @@ import {
 } from "../../../src/server/business/weekly-report.ts";
 import {
   ensureWeeklyReport,
+  generateWeeklyReport,
   generateWeeklyReportsForAll,
   parseStoredReport,
   readWeeklyHistory,
@@ -71,16 +72,17 @@ class FakeStore implements WeeklyReportStore {
     return this.rows.get(rowKey(input.businessId, input.weekStart)) ?? null;
   }
 
-  async saveReport(write: WeeklyReportWrite): Promise<StoredWeeklyReportRow> {
+  async saveReport(write: WeeklyReportWrite): Promise<{
+    stored: StoredWeeklyReportRow;
+    created: boolean;
+  }> {
     this.saves.push(write);
     const key = rowKey(write.businessId, write.weekStart);
     const existing = this.rows.get(key);
-    const row: StoredWeeklyReportRow = {
-      id: existing?.id ?? `wr_${this.nextId++}`,
-      ...write,
-    };
+    if (existing !== undefined) return { stored: existing, created: false };
+    const row: StoredWeeklyReportRow = { id: `wr_${this.nextId++}`, ...write };
     this.rows.set(key, row);
-    return row;
+    return { stored: row, created: true };
   }
 
   async listReportHistory(input: {
@@ -182,6 +184,35 @@ describe("ensureWeeklyReport", () => {
   });
 });
 
+describe("saveReport", () => {
+  it("is create-if-absent and never overwrites a snapshot", async () => {
+    const store = new FakeStore();
+    const report = buildWeeklyReport({ tickets: [], previousTickets: [], now });
+    const first = toWeeklyReportWrite({
+      businessId: "biz_a",
+      report,
+      trigger: "cron",
+      generatedAt: now,
+    });
+    const second = toWeeklyReportWrite({
+      businessId: "biz_a",
+      report,
+      trigger: "lazy",
+      generatedAt: new Date(now.getTime() + 60_000),
+    });
+
+    const savedFirst = await store.saveReport(first);
+    const savedSecond = await store.saveReport(second);
+    assert.equal(savedFirst.created, true);
+    assert.equal(savedSecond.created, false);
+    assert.equal(
+      savedSecond.stored.generatedAt.toISOString(),
+      now.toISOString(),
+    );
+    assert.equal(store.rows.get(rowKey("biz_a", first.weekStart))?.trigger, "cron");
+  });
+});
+
 describe("generateWeeklyReportsForAll", () => {
   it("generates for every business and reports partial failures without aborting", async () => {
     const store = new FakeStore();
@@ -222,6 +253,25 @@ describe("generateWeeklyReportsForAll", () => {
     assert.equal(second.created, 0);
     assert.equal(second.existing, 2);
     assert.equal(store.saves.length, 2);
+  });
+});
+
+class BlindStore extends FakeStore {
+  /** Simulates a pre-read that raced another writer and saw no row. */
+  override async findReport(): Promise<StoredWeeklyReportRow | null> {
+    return null;
+  }
+}
+
+describe("generateWeeklyReport", () => {
+  it("takes created from the write, not from a raced pre-read", async () => {
+    const store = new BlindStore();
+    const first = await generateWeeklyReport(store, "biz_a", now, "cron");
+    const second = await generateWeeklyReport(store, "biz_a", now, "lazy");
+    assert.equal(first.created, true);
+    assert.equal(second.created, false);
+    assert.equal(second.stored.id, first.stored.id);
+    assert.equal(second.stored.generatedAt.toISOString(), now.toISOString());
   });
 });
 

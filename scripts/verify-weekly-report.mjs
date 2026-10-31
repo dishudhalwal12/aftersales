@@ -430,6 +430,59 @@ async function lazyWeeklyReport() {
   storedGeneratedAt = rows[0]?.generatedAt.toISOString() ?? null;
 }
 
+async function immutableSnapshot() {
+  const prisma = await database();
+  const { weekWindow } = await weekly();
+  const completed = weekWindow(new Date(), 1);
+  // A week earlier than the lazy report, so this group writes its own row.
+  const weekStart = new Date(completed.start.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const weekEnd = completed.start;
+  const engine = await import("../src/server/business/weekly-report.ts");
+  const logic = await import("../src/server/business/weekly-report-store.ts");
+  const { prismaWeeklyReportStore } = await import(
+    "../src/server/business/weekly-report-store-prisma.ts"
+  );
+
+  const report = engine.buildWeeklyReport({
+    tickets: [],
+    previousTickets: [],
+    now: new Date(weekEnd.getTime() + 60 * 60 * 1000),
+  });
+  expect(
+    "the snapshot week is aligned to a Monday",
+    report.weekStart === weekStart.toISOString() && report.weekEnd === weekEnd.toISOString(),
+    `${report.weekStart} → ${report.weekEnd}`,
+  );
+
+  const firstGeneratedAt = new Date(weekStart.getTime() + 60_000);
+  const secondGeneratedAt = new Date(weekStart.getTime() + 120_000);
+  await prismaWeeklyReportStore.saveReport(
+    logic.toWeeklyReportWrite({
+      businessId: GATE_BUSINESS,
+      report,
+      trigger: "cron",
+      generatedAt: firstGeneratedAt,
+    }),
+  );
+  await prismaWeeklyReportStore.saveReport(
+    logic.toWeeklyReportWrite({
+      businessId: GATE_BUSINESS,
+      report,
+      trigger: "lazy",
+      generatedAt: secondGeneratedAt,
+    }),
+  );
+
+  const row = await prisma.weeklyInsightReport.findUnique({
+    where: { businessId_weekStart: { businessId: GATE_BUSINESS, weekStart: report.weekStart ? new Date(report.weekStart) : weekStart } },
+  });
+  expect(
+    "a second save never overwrites a completed snapshot",
+    row?.generatedAt.toISOString() === firstGeneratedAt.toISOString() && row?.trigger === "cron",
+    `${row?.generatedAt?.toISOString()} / ${row?.trigger}`,
+  );
+}
+
 async function idempotentRead() {
   const first = parseJson(
     (await get(`/api/businesses/${GATE_BUSINESS}/insights`, judgeCookie)).body,
@@ -547,6 +600,7 @@ async function main() {
     await group("seed the gate tenant", seedGateTenant);
     await group("lazy automatic report", lazyWeeklyReport);
     await group("idempotent read", idempotentRead);
+    await group("immutable snapshot", immutableSnapshot);
     await group("cron sweep", cronSweep);
     await group("dashboard surface", dashboardSurface);
   } finally {

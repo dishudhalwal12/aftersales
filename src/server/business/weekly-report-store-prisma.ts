@@ -6,10 +6,10 @@
 import type { WeeklyInsightReport } from "@prisma/client";
 import { prisma } from "../db.ts";
 import type {
+  SavedWeeklyReport,
   StoredWeeklyReportRow,
   WeeklyReportStore,
   WeeklyReportTrigger,
-  WeeklyReportWrite,
 } from "./weekly-report-store.ts";
 
 const TICKET_SELECT = {
@@ -40,14 +40,22 @@ export const prismaWeeklyReportStore: WeeklyReportStore = {
     return row === null ? null : toStored(row);
   },
 
-  async saveReport(write) {
-    const { businessId, weekStart, weekEnd: _weekEnd, ...rest } = write;
-    const row = await prisma.weeklyInsightReport.upsert({
-      where: { businessId_weekStart: { businessId, weekStart } },
-      create: write,
-      update: rest,
-    });
-    return toStored(row);
+  async saveReport(write): Promise<SavedWeeklyReport> {
+    try {
+      const row = await prisma.weeklyInsightReport.create({ data: write });
+      return { stored: toStored(row), created: true };
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // Another generation won the race. Its snapshot is the truth: never
+      // overwrite generatedAt, the trigger, or the payload of a completed week.
+      const existing = await prisma.weeklyInsightReport.findUnique({
+        where: {
+          businessId_weekStart: { businessId: write.businessId, weekStart: write.weekStart },
+        },
+      });
+      if (existing === null) throw error;
+      return { stored: toStored(existing), created: false };
+    }
   },
 
   async listReportHistory({ businessId, limit }) {
@@ -64,6 +72,15 @@ export const prismaWeeklyReportStore: WeeklyReportStore = {
     return rows.map((row) => row.id);
   },
 };
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
 
 function toTrigger(value: string): WeeklyReportTrigger {
   return value === "cron" ? "cron" : "lazy";
